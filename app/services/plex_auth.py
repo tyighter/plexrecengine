@@ -12,7 +12,9 @@ from app.config import save_config, settings
 from app.services.plex_logging import LOG_FILE, get_plex_logger
 
 _PENDING_LOGINS: Dict[str, tuple[MyPlexPinLogin, datetime]] = {}
+_COMPLETED_LOGINS: Dict[str, tuple["PlexLoginStatus", datetime]] = {}
 _LOGIN_TIMEOUT = timedelta(minutes=10)
+_COMPLETED_RETENTION = timedelta(minutes=2)
 ENV_PATH = Path(".env")
 
 LOGGER = get_plex_logger()
@@ -69,6 +71,17 @@ def _remove_expired(pin_id: str):
     )
     _PENDING_LOGINS.pop(pin_id, None)
     LOGGER.debug("Login removed", extra={"pin_id": pin_id, "pending_after": len(_PENDING_LOGINS)})
+
+
+def _store_completed(pin_id: str, status: "PlexLoginStatus"):
+    cutoff = datetime.utcnow() - _COMPLETED_RETENTION
+    for stale_pin in [p for p, (_, ts) in _COMPLETED_LOGINS.items() if ts < cutoff]:
+        _COMPLETED_LOGINS.pop(stale_pin, None)
+    _COMPLETED_LOGINS[pin_id] = (status, datetime.utcnow())
+    LOGGER.debug(
+        "Stored completed login status",
+        extra={"pin_id": pin_id, "status": status.status, "cached": len(_COMPLETED_LOGINS)},
+    )
 
 
 def _connect_server(account: MyPlexAccount) -> Optional[PlexServer]:
@@ -183,6 +196,17 @@ def save_library_preferences(movie_library: str, show_library: str):
 
 
 def check_login(pin_id: str) -> PlexLoginStatus:
+    completed = _COMPLETED_LOGINS.get(pin_id)
+    if completed:
+        status, cached_at = completed
+        if datetime.utcnow() - cached_at <= _COMPLETED_RETENTION:
+            LOGGER.debug(
+                "Login status replayed from cache",
+                extra={"pin_id": pin_id, "status": status.status},
+            )
+            return status
+        _COMPLETED_LOGINS.pop(pin_id, None)
+
     entry = _PENDING_LOGINS.get(pin_id)
     if not entry:
         LOGGER.debug("Login status check for unknown pinId", extra={"pin_id": pin_id})
@@ -233,11 +257,13 @@ def check_login(pin_id: str) -> PlexLoginStatus:
             "show_library": show_library,
         },
     )
-    _remove_expired(pin_id)
-    return PlexLoginStatus(
+    status = PlexLoginStatus(
         "authorized",
         token=pin_login.token,
         base_url=base_url,
         server_name=getattr(server, "friendlyName", None),
         libraries=libraries,
     )
+    _store_completed(pin_id, status)
+    _remove_expired(pin_id)
+    return status

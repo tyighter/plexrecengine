@@ -95,7 +95,9 @@ class PlexService:
             if section.TYPE != section_type:
                 continue
             try:
-                for item in section.search(query, unwatched=True):
+                # PlexAPI does not expose a searchTitle helper; use the standard
+                # search API with explicit title and unwatched filters instead.
+                for item in section.search(title=query, unwatched=True):
                     yield item
             except Exception:
                 LOGGER.exception(

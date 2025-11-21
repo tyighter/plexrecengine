@@ -4,6 +4,10 @@ from typing import Iterable, List, Optional
 from plexapi.server import PlexServer
 
 from app.config import settings
+from app.services.plex_logging import get_plex_logger
+
+
+LOGGER = get_plex_logger()
 
 
 class PlexService:
@@ -11,12 +15,23 @@ class PlexService:
         if not settings.is_plex_configured:
             raise RuntimeError("Plex is not configured. Please sign in through the web interface.")
         self.client = PlexServer(str(settings.plex_base_url), settings.plex_token)
+        LOGGER.debug(
+            "Initialized Plex service client",
+            extra={
+                "base_url": str(settings.plex_base_url),
+                "movie_library": settings.plex_movie_library,
+                "show_library": settings.plex_show_library,
+            },
+        )
 
     def _library_sections(self):
         for name in [settings.plex_movie_library, settings.plex_show_library]:
             try:
-                yield self.client.library.section(name)
+                section = self.client.library.section(name)
+                LOGGER.debug("Loaded Plex library section", extra={"section": name})
+                yield section
             except Exception:
+                LOGGER.exception("Failed to load Plex library section", extra={"section": name})
                 continue
 
     def recently_watched_movies(self, days: int = 30, max_results: Optional[int] = None):
@@ -28,6 +43,10 @@ class PlexService:
                     last_viewed = getattr(movie, "lastViewedAt", None)
                     if last_viewed and last_viewed >= cutoff:
                         movies.append(movie)
+        LOGGER.debug(
+            "Collected recently watched movies",
+            extra={"count": len(movies), "cutoff": cutoff.isoformat()},
+        )
         sorted_items = sorted(movies, key=lambda m: getattr(m, "lastViewedAt", None) or datetime.min, reverse=True)
         if max_results:
             return sorted_items[:max_results]
@@ -42,6 +61,10 @@ class PlexService:
                     last_viewed = getattr(episode, "lastViewedAt", None)
                     if last_viewed and last_viewed >= cutoff:
                         episodes.append(episode)
+        LOGGER.debug(
+            "Collected recently watched episodes",
+            extra={"count": len(episodes), "cutoff": cutoff.isoformat()},
+        )
         sorted_eps = sorted(episodes, key=lambda e: getattr(e, "lastViewedAt", None) or datetime.min, reverse=True)
         shows = []
         seen_keys = set()
@@ -62,6 +85,9 @@ class PlexService:
             shows.append(show_item)
             if max_results and len(shows) >= max_results:
                 break
+        LOGGER.debug(
+            "Selected unique recently watched shows", extra={"count": len(shows)}
+        )
         return shows
 
     def search_unwatched(self, section_type: str, query: str):
@@ -72,6 +98,9 @@ class PlexService:
                 for item in section.searchTitle(query, unwatched=True):
                     yield item
             except Exception:
+                LOGGER.exception(
+                    "Failed Plex search", extra={"section_type": section_type, "query": query}
+                )
                 continue
 
     def _find_section_for_item(self, item):
@@ -80,6 +109,10 @@ class PlexService:
             try:
                 return self.client.library.sectionByID(section_id)
             except Exception:
+                LOGGER.exception(
+                    "Unable to load section by ID for Plex item",
+                    extra={"section_id": section_id},
+                )
                 pass
 
         item_type = getattr(item, "type", None)
@@ -91,6 +124,9 @@ class PlexService:
 
     def ensure_collection(self, title: str, section):
         existing = next((c for c in section.collections() if c.title == title), None)
+        LOGGER.debug(
+            "Ensuring Plex collection exists", extra={"title": title, "section": getattr(section, "title", None)}
+        )
         return existing or section.createCollection(title)
 
     def set_collection_members(self, collection_name: str, items: Iterable):
@@ -104,8 +140,20 @@ class PlexService:
 
         collection = self.ensure_collection(collection_name, section)
         collection.deleteItems(collection.items())
+        LOGGER.debug(
+            "Reset Plex collection items",
+            extra={"collection": collection_name, "item_count": len(items)},
+        )
         for item in items:
             item.addCollection(collection)
+            LOGGER.debug(
+                "Added item to Plex collection",
+                extra={
+                    "collection": collection_name,
+                    "item_title": getattr(item, "title", None),
+                    "section": getattr(section, "title", None),
+                },
+            )
 
     def poster_url(self, item) -> Optional[str]:
         """Return a usable poster URL for any Plex item.
@@ -133,10 +181,15 @@ class PlexService:
                     return poster
                 return self.client.url(poster, includeToken=True)
             except Exception:
+                LOGGER.exception(
+                    "Failed to resolve Plex poster URL",
+                    extra={"poster": poster, "item": getattr(item, "title", None)},
+                )
                 continue
 
         return None
 
 
 def get_plex_service() -> PlexService:
+    LOGGER.debug("Creating Plex service instance")
     return PlexService()

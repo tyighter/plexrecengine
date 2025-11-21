@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -10,40 +9,14 @@ from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 from plexapi.server import PlexServer
 
 from app.config import save_config, settings
+from app.services.plex_logging import LOG_FILE, get_plex_logger
 
 _PENDING_LOGINS: Dict[str, tuple[MyPlexPinLogin, datetime]] = {}
 _LOGIN_TIMEOUT = timedelta(minutes=10)
 ENV_PATH = Path(".env")
-LOG_DIR = Path("/app/logs")
-LOG_FILE = LOG_DIR / "plex.log"
 
-
-def _get_logger() -> logging.Logger:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    LOG_FILE.touch(exist_ok=True)
-
-    logger = logging.getLogger("plex_signin")
-    logger.setLevel(logging.DEBUG)
-    logger.propagate = False
-
-    if not logger.handlers:
-        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-
-        file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
-
-    return logger
-
-
-LOGGER = _get_logger()
-LOGGER.info("Plex sign-in logger initialized", extra={"log_file": str(LOG_FILE)})
+LOGGER = get_plex_logger()
+LOGGER.debug("Plex authentication logger initialized", extra={"log_file": str(LOG_FILE)})
 
 
 class PlexLoginStatus:
@@ -74,7 +47,14 @@ class PlexLoginStatus:
 def start_login() -> dict:
     pin_login = MyPlexPinLogin(oauth=True)
     _PENDING_LOGINS[pin_login._id] = (pin_login, datetime.utcnow())
-    LOGGER.debug("Started Plex login flow", extra={"pin_id": pin_login._id})
+    LOGGER.debug(
+        "Started Plex login flow",
+        extra={
+            "pin_id": pin_login._id,
+            "pending_logins": len(_PENDING_LOGINS),
+            "expires_in_seconds": int(_LOGIN_TIMEOUT.total_seconds()),
+        },
+    )
     return {
         "pinId": pin_login._id,
         "authUrl": pin_login.oauthUrl(),
@@ -83,8 +63,12 @@ def start_login() -> dict:
 
 
 def _remove_expired(pin_id: str):
-    LOGGER.debug("Removing expired or completed login", extra={"pin_id": pin_id})
+    LOGGER.debug(
+        "Removing expired or completed login",
+        extra={"pin_id": pin_id, "pending_before": len(_PENDING_LOGINS)},
+    )
     _PENDING_LOGINS.pop(pin_id, None)
+    LOGGER.debug("Login removed", extra={"pin_id": pin_id, "pending_after": len(_PENDING_LOGINS)})
 
 
 def _connect_server(account: MyPlexAccount) -> Optional[PlexServer]:
@@ -114,10 +98,15 @@ def _collect_library_names(server: PlexServer) -> Dict[str, List[str]]:
         section_type = getattr(section, "TYPE", None)
         if section_type in names:
             names[section_type].append(section.title)
+            LOGGER.debug(
+                "Discovered Plex library section",
+                extra={"type": section_type, "title": section.title},
+            )
     if not names["movie"]:
         names["movie"] = ["Movies"]
     if not names["show"]:
         names["show"] = ["TV Shows"]
+    LOGGER.debug("Collected Plex libraries", extra={"libraries": names})
     return names
 
 
@@ -142,6 +131,15 @@ def _persist_settings(base_url: str, token: str, movie_library: str, show_librar
     settings.plex_library_names = [movie_library, show_library]
     settings.plex_movie_library = movie_library
     settings.plex_show_library = show_library
+    LOGGER.debug(
+        "Persisted Plex settings",
+        extra={
+            "base_url": base_url,
+            "movie_library": movie_library,
+            "show_library": show_library,
+            "env_path": str(ENV_PATH),
+        },
+    )
 
 
 def _validate_library_choice(library_name: str, available: Dict[str, List[str]], media_type: str) -> str:
@@ -154,11 +152,17 @@ def _validate_library_choice(library_name: str, available: Dict[str, List[str]],
 
 def list_available_libraries() -> Dict[str, List[str]]:
     if not settings.is_plex_configured:
+        LOGGER.info("Plex configuration missing; cannot list libraries")
         return {"movie": [], "show": []}
     try:
         server = PlexServer(str(settings.plex_base_url), settings.plex_token)
+        LOGGER.debug(
+            "Connected to Plex to list libraries",
+            extra={"base_url": str(settings.plex_base_url)},
+        )
         return _collect_library_names(server)
     except Exception as exc:
+        LOGGER.exception("Unable to load libraries from Plex", extra={"error": str(exc)})
         raise RuntimeError("Unable to load libraries from Plex") from exc
 
 
@@ -171,6 +175,10 @@ def save_library_preferences(movie_library: str, show_library: str):
     show = _validate_library_choice(show_library, available, media_type="show")
 
     _persist_settings(str(settings.plex_base_url), str(settings.plex_token), movie, show)
+    LOGGER.info(
+        "Updated Plex library preferences",
+        extra={"movie_library": movie, "show_library": show},
+    )
     return {"movie": movie, "show": show}
 
 
@@ -203,6 +211,7 @@ def check_login(pin_id: str) -> PlexLoginStatus:
         return PlexLoginStatus("pending")
 
     account = MyPlexAccount(token=pin_login.token)
+    LOGGER.debug("Created Plex account from pin login", extra={"pin_id": pin_id})
     server = _connect_server(account)
     if not server:
         LOGGER.error("Unable to connect to Plex server after login", extra={"pin_id": pin_id})

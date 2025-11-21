@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Plex Recommendations</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <style>
+        .poster-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 1rem;
+        }
+        .poster-card img {
+            width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        }
+        .poster-card {
+            text-align: center;
+        }
+        header {
+            margin-bottom: 2rem;
+        }
+    </style>
+</head>
+<body>
+<main class="container">
+    <header>
+        <h1>Plex Recommendations</h1>
+        <p>Signed into Plex at {{ settings.plex_base_url }}. Recommendations rebuild on startup and when the webhook is called after a watch.</p>
+    </header>
+
+    <section>
+        <h2>Recommended Movies</h2>
+        <div class="poster-grid">
+            {% for movie in movies %}
+            <article class="poster-card">
+                {% if movie.poster %}
+                <img src="{{ movie.poster }}" alt="{{ movie.title }} poster" />
+                {% endif %}
+                <p><strong>{{ movie.title }}</strong><br><small>Score: {{ movie.score }}{% if movie.letterboxd_rating %} · Letterboxd: {{ movie.letterboxd_rating }}{% endif %}</small></p>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section>
+        <h2>Recommended Shows</h2>
+        <div class="poster-grid">
+            {% for show in shows %}
+            <article class="poster-card">
+                {% if show.poster %}
+                <img src="{{ show.poster }}" alt="{{ show.title }} poster" />
+                {% endif %}
+                <p><strong>{{ show.title }}</strong><br><small>Score: {{ show.score }}{% if show.letterboxd_rating %} · Letterboxd: {{ show.letterboxd_rating }}{% endif %}</small></p>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+</main>
+</body>
+</html>

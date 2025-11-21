@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  plexrec:
+    build: .
+    container_name: plexrec
+    ports:
+      - "5555:5555"
+    environment:
+      PLEX_BASE_URL: ${PLEX_BASE_URL}
+      PLEX_TOKEN: ${PLEX_TOKEN}
+      PLEX_LIBRARY_NAMES: ${PLEX_LIBRARY_NAMES:-Movies,TV Shows}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      REDIS_URL: ${REDIS_URL:-}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

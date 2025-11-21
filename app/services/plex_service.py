@@ -1,0 +1,73 @@
+from datetime import datetime
+from typing import Iterable, List, Optional
+
+from plexapi.server import PlexServer
+
+from app.config import settings
+
+
+class PlexService:
+    def __init__(self) -> None:
+        self.client = PlexServer(str(settings.plex_base_url), settings.plex_token)
+
+    def _library_sections(self):
+        for name in settings.plex_library_names:
+            try:
+                yield self.client.library.section(name)
+            except Exception:
+                continue
+
+    def recently_watched_movies(self, limit: int = 10):
+        movies = []
+        for section in self._library_sections():
+            if section.TYPE == "movie":
+                movies.extend(section.search(sort="viewedAt:desc", unwatched=False)[: limit * 2])
+        sorted_items = sorted(movies, key=lambda m: m.viewedAt or datetime.min, reverse=True)
+        return sorted_items[:limit]
+
+    def recently_watched_shows(self, limit: int = 10):
+        episodes = []
+        for section in self._library_sections():
+            if section.TYPE == "show":
+                episodes.extend(section.search(sort="viewedAt:desc", unwatched=False)[: limit * 3])
+        sorted_eps = sorted(episodes, key=lambda e: e.viewedAt or datetime.min, reverse=True)
+        shows = []
+        seen_keys = set()
+        for ep in sorted_eps:
+            show = ep.grandparentTitle
+            if show in seen_keys:
+                continue
+            seen_keys.add(show)
+            shows.append(ep.show())
+            if len(shows) >= limit:
+                break
+        return shows
+
+    def search_unwatched(self, section_type: str, query: str):
+        for section in self._library_sections():
+            if section.TYPE != section_type:
+                continue
+            try:
+                for item in section.searchTitle(query, unwatched=True):
+                    yield item
+            except Exception:
+                continue
+
+    def ensure_collection(self, title: str):
+        return self.client.collection(title) if any(c.title == title for c in self.client.collections()) else self.client.createCollection(title)
+
+    def set_collection_members(self, collection_name: str, items: Iterable):
+        collection = self.ensure_collection(collection_name)
+        collection.deleteItems(collection.items())
+        for item in items:
+            item.addCollection(collection)
+
+    def poster_url(self, item) -> Optional[str]:
+        try:
+            return self.client.url(item.thumb) if item.thumb else None
+        except Exception:
+            return None
+
+
+def get_plex_service() -> PlexService:
+    return PlexService()

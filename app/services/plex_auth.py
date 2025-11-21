@@ -8,7 +8,7 @@ from dotenv import set_key
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 from plexapi.server import PlexServer
 
-from app.config import settings
+from app.config import save_config, settings
 
 _PENDING_LOGINS: Dict[str, tuple[MyPlexPinLogin, datetime]] = {}
 _LOGIN_TIMEOUT = timedelta(minutes=10)
@@ -85,6 +85,15 @@ def _persist_settings(base_url: str, token: str, movie_library: str, show_librar
     set_key(str(ENV_PATH), "PLEX_LIBRARY_NAMES", ",".join([movie_library, show_library]))
     set_key(str(ENV_PATH), "PLEX_MOVIE_LIBRARY", movie_library)
     set_key(str(ENV_PATH), "PLEX_SHOW_LIBRARY", show_library)
+    save_config(
+        {
+            "PLEX_BASE_URL": base_url,
+            "PLEX_TOKEN": token,
+            "PLEX_LIBRARY_NAMES": [movie_library, show_library],
+            "PLEX_MOVIE_LIBRARY": movie_library,
+            "PLEX_SHOW_LIBRARY": show_library,
+        }
+    )
     settings.plex_base_url = base_url
     settings.plex_token = token
     settings.plex_library_names = [movie_library, show_library]

@@ -1,7 +1,46 @@
+import json
+import os
+from pathlib import Path
 from typing import List, Optional
 
 from pydantic import HttpUrl, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+CONFIG_DIR = Path(".data")
+CONFIG_PATH = CONFIG_DIR / "config.json"
+
+
+def _load_saved_config():
+    if not CONFIG_PATH.exists():
+        return
+    try:
+        data = json.loads(CONFIG_PATH.read_text())
+    except Exception:
+        return
+
+    for key, value in data.items():
+        if value is None:
+            continue
+        if isinstance(value, list):
+            os.environ.setdefault(key, ",".join(map(str, value)))
+        else:
+            os.environ.setdefault(key, str(value))
+
+
+def save_config(values: dict[str, object]):
+    CONFIG_DIR.mkdir(exist_ok=True)
+    existing: dict[str, object] = {}
+    if CONFIG_PATH.exists():
+        try:
+            existing = json.loads(CONFIG_PATH.read_text())
+        except Exception:
+            existing = {}
+
+    existing.update(values)
+    CONFIG_PATH.write_text(json.dumps(existing, indent=2))
+
+
+_load_saved_config()
 
 
 class Settings(BaseSettings):

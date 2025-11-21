@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.config import settings
+from app.services.plex_auth import check_login, start_login
 from app.services.letterboxd_client import get_letterboxd_client
 from app.services.plex_service import get_plex_service
 from app.services.recommendation import RecommendationEngine
@@ -46,6 +47,19 @@ async def dashboard(request: Request):
             "shows": shows,
         },
     )
+
+
+@app.post("/api/plex/login/start")
+async def start_plex_login():
+    return start_login()
+
+
+@app.get("/api/plex/login/status")
+async def plex_login_status(pinId: str = Query(..., alias="pinId")):
+    status = check_login(pinId)
+    if status.status == "invalid":
+        raise HTTPException(status_code=404, detail="Invalid PIN identifier")
+    return status.dict()
 
 
 @app.post("/webhook")

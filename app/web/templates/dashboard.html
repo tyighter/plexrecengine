@@ -31,6 +31,12 @@
         <p>Signed into Plex at {{ settings.plex_base_url }}. Recommendations rebuild on startup and when the webhook is called after a watch.</p>
         {% else %}
         <p>Plex is not configured yet. Sign in through the web interface to connect your server and start building recommendations.</p>
+        <section id="connect-plex" aria-label="Plex connection">
+            <p><strong>Connect to Plex</strong></p>
+            <p>Start the Plex OAuth flow, approve the app, and we will store the server address, token, and library names in your <code>.env</code> file automatically.</p>
+            <button id="start-login" role="button">Start Plex Sign In</button>
+            <p id="login-status" class="muted"></p>
+        </section>
         {% endif %}
     </header>
 
@@ -62,5 +68,48 @@
         </div>
     </section>
 </main>
+<script>
+    const startButton = document.getElementById('start-login');
+    const statusEl = document.getElementById('login-status');
+    let pollInterval;
+
+    async function pollStatus(pinId) {
+        pollInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`/api/plex/login/status?pinId=${encodeURIComponent(pinId)}`);
+                const data = await response.json();
+                if (data.status === 'authorized') {
+                    clearInterval(pollInterval);
+                    statusEl.innerHTML = `Connected to ${data.serverName || 'Plex'} at <code>${data.baseUrl}</code>. Token saved. Reload the page to start generating recommendations.`;
+                } else if (data.status === 'expired') {
+                    clearInterval(pollInterval);
+                    statusEl.textContent = 'Sign-in expired. Please start again.';
+                } else if (data.status === 'error') {
+                    clearInterval(pollInterval);
+                    statusEl.textContent = 'There was an error completing Plex sign-in. Please try again.';
+                }
+            } catch (err) {
+                clearInterval(pollInterval);
+                statusEl.textContent = 'Unable to check Plex login status.';
+            }
+        }, 1500);
+    }
+
+    startButton?.addEventListener('click', async () => {
+        statusEl.textContent = 'Requesting Plex sign-in link...';
+        try {
+            const response = await fetch('/api/plex/login/start', { method: 'POST' });
+            const data = await response.json();
+            if (data.authUrl && data.pinId) {
+                statusEl.innerHTML = `Open <a href="${data.authUrl}" target="_blank" rel="noreferrer">Plex</a> to authorize this app, then return here. Waiting for authorization...`;
+                pollStatus(data.pinId);
+            } else {
+                statusEl.textContent = 'Unable to start Plex sign-in. Please try again.';
+            }
+        } catch (err) {
+            statusEl.textContent = 'Failed to contact the server. Please try again.';
+        }
+    });
+</script>
 </body>
 </html>

@@ -35,6 +35,15 @@ class LibrarySelection(BaseModel):
     showLibrary: str
 
 
+def _serialize_recent(item, poster_url):
+    return {
+        "title": getattr(item, "title", ""),
+        "poster": poster_url(item) if item else None,
+        "year": getattr(item, "year", None),
+        "library": getattr(item, "librarySectionTitle", None),
+    }
+
+
 @app.on_event("startup")
 async def startup_build_collections():
     if not settings.is_plex_configured or not settings.tmdb_api_key:
@@ -48,15 +57,15 @@ async def startup_build_collections():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    if settings.is_plex_configured and settings.tmdb_api_key:
+    movies = []
+    shows = []
+    recent_movies = []
+    recent_shows = []
+
+    if settings.is_plex_configured:
         plex = get_plex_service()
-        letterboxd = get_letterboxd_client()
-        engine = RecommendationEngine(plex, letterboxd)
-        movies = engine.build_movie_collection()
-        shows = engine.build_show_collection()
-    else:
-        movies = []
-        shows = []
+        recent_movies = [_serialize_recent(item, plex.poster_url) for item in plex.recently_watched_movies(limit=10)]
+        recent_shows = [_serialize_recent(item, plex.poster_url) for item in plex.recently_watched_shows(limit=10)]
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -64,6 +73,8 @@ async def dashboard(request: Request):
             "settings": settings,
             "movies": movies,
             "shows": shows,
+            "recent_movies": recent_movies,
+            "recent_shows": recent_shows,
         },
     )
 
@@ -120,3 +131,21 @@ async def webhook_trigger():
         engine.build_show_collection()
         return {"status": "ok"}
     return {"status": "skipped", "reason": "Plex is not configured"}
+
+
+@app.post("/api/recommendations")
+async def build_recommendations():
+    if not settings.is_plex_configured:
+        raise HTTPException(status_code=400, detail="Plex is not configured")
+    if not settings.tmdb_api_key:
+        raise HTTPException(status_code=400, detail="TMDB API key is missing")
+
+    plex = get_plex_service()
+    letterboxd = get_letterboxd_client()
+    engine = RecommendationEngine(plex, letterboxd)
+    movies = engine.build_movie_collection()
+    shows = engine.build_show_collection()
+    return {
+        "movies": [m.__dict__ for m in movies],
+        "shows": [s.__dict__ for s in shows],
+    }

@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from app.config import settings
+from app.config import save_config, settings
 from app.services.plex_auth import (
     check_login,
     list_available_libraries,
@@ -115,6 +115,7 @@ async def set_tmdb_api_key(payload: TmdbKeyRequest):
         raise HTTPException(status_code=400, detail="API key is required")
     ENV_PATH.touch(exist_ok=True)
     set_key(str(ENV_PATH), "TMDB_API_KEY", api_key)
+    save_config({"TMDB_API_KEY": api_key})
     settings.tmdb_api_key = api_key
     return {"status": "ok"}
 

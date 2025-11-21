@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -13,6 +14,28 @@ from app.config import save_config, settings
 _PENDING_LOGINS: Dict[str, tuple[MyPlexPinLogin, datetime]] = {}
 _LOGIN_TIMEOUT = timedelta(minutes=10)
 ENV_PATH = Path(".env")
+LOG_DIR = Path("/logs")
+LOG_FILE = LOG_DIR / "plex.log"
+
+
+def _get_logger() -> logging.Logger:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    logger = logging.getLogger("plex_signin")
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+
+    if not logger.handlers:
+        handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+        )
+        logger.addHandler(handler)
+
+    return logger
+
+
+LOGGER = _get_logger()
 
 
 class PlexLoginStatus:
@@ -43,6 +66,7 @@ class PlexLoginStatus:
 def start_login() -> dict:
     pin_login = MyPlexPinLogin(oauth=True)
     _PENDING_LOGINS[pin_login._id] = (pin_login, datetime.utcnow())
+    LOGGER.debug("Started Plex login flow", extra={"pin_id": pin_login._id})
     return {
         "pinId": pin_login._id,
         "authUrl": pin_login.oauthUrl(),
@@ -51,19 +75,28 @@ def start_login() -> dict:
 
 
 def _remove_expired(pin_id: str):
+    LOGGER.debug("Removing expired or completed login", extra={"pin_id": pin_id})
     _PENDING_LOGINS.pop(pin_id, None)
 
 
 def _connect_server(account: MyPlexAccount) -> Optional[PlexServer]:
+    LOGGER.debug("Attempting to connect to Plex server resources")
     for resource in account.resources():
         if "server" not in resource.provides:
             continue
         try:
             # Avoid long hangs when Plex servers are unreachable by limiting the
             # per-connection timeout.
+            LOGGER.debug(
+                "Connecting to Plex resource", extra={"resource": resource.name}
+            )
             return resource.connect(timeout=5)
         except Exception:
+            LOGGER.exception(
+                "Failed to connect to Plex resource", extra={"resource": resource.name}
+            )
             continue
+    LOGGER.error("No accessible Plex server resources found")
     return None
 
 
@@ -136,29 +169,35 @@ def save_library_preferences(movie_library: str, show_library: str):
 def check_login(pin_id: str) -> PlexLoginStatus:
     entry = _PENDING_LOGINS.get(pin_id)
     if not entry:
+        LOGGER.debug("Login status check for unknown pinId", extra={"pin_id": pin_id})
         return PlexLoginStatus("invalid")
 
     pin_login, created_at = entry
     if datetime.utcnow() - created_at > _LOGIN_TIMEOUT:
+        LOGGER.info("Plex login attempt expired", extra={"pin_id": pin_id})
         _remove_expired(pin_id)
         return PlexLoginStatus("expired")
 
     try:
         pin_login.checkLogin()
     except Exception:
+        LOGGER.exception("Error during Plex login check", extra={"pin_id": pin_id})
         _remove_expired(pin_id)
         return PlexLoginStatus("error")
 
     if pin_login.expired:
+        LOGGER.info("Plex login pin expired", extra={"pin_id": pin_id})
         _remove_expired(pin_id)
         return PlexLoginStatus("expired")
 
     if not pin_login.token:
+        LOGGER.debug("Plex login still pending", extra={"pin_id": pin_id})
         return PlexLoginStatus("pending")
 
     account = MyPlexAccount(token=pin_login.token)
     server = _connect_server(account)
     if not server:
+        LOGGER.error("Unable to connect to Plex server after login", extra={"pin_id": pin_id})
         _remove_expired(pin_id)
         return PlexLoginStatus("error")
 
@@ -167,6 +206,16 @@ def check_login(pin_id: str) -> PlexLoginStatus:
     show_library = _validate_library_choice(settings.plex_show_library, libraries, media_type="show")
     base_url = server.url("") if callable(getattr(server, "url", None)) else str(server.url)
     _persist_settings(base_url, pin_login.token, movie_library, show_library)
+    LOGGER.info(
+        "Plex login authorized",
+        extra={
+            "pin_id": pin_id,
+            "server_name": getattr(server, "friendlyName", None),
+            "base_url": base_url,
+            "movie_library": movie_library,
+            "show_library": show_library,
+        },
+    )
     _remove_expired(pin_id)
     return PlexLoginStatus(
         "authorized",

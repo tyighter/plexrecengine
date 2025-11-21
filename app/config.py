@@ -6,17 +6,22 @@ from typing import List, Optional
 from pydantic import HttpUrl, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.keys_store import load_keys
+
 CONFIG_DIR = Path(".data")
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
 
 def _load_saved_config():
-    if not CONFIG_PATH.exists():
-        return
-    try:
-        data = json.loads(CONFIG_PATH.read_text())
-    except Exception:
-        return
+    yaml_config = load_keys()
+    json_config = {}
+    if CONFIG_PATH.exists():
+        try:
+            json_config = json.loads(CONFIG_PATH.read_text())
+        except Exception:
+            json_config = {}
+
+    data = {**yaml_config, **json_config}
 
     for key, value in data.items():
         if value is None:

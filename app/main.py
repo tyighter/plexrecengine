@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from app.keys_store import persist_keys
 from app.config import save_config, settings
 from app.services.plex_auth import (
     check_login,
@@ -116,6 +117,7 @@ async def set_tmdb_api_key(payload: TmdbKeyRequest):
     ENV_PATH.touch(exist_ok=True)
     set_key(str(ENV_PATH), "TMDB_API_KEY", api_key)
     save_config({"TMDB_API_KEY": api_key})
+    persist_keys(tmdb_api_key=api_key)
     settings.tmdb_api_key = api_key
     return {"status": "ok"}
 

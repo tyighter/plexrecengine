@@ -80,9 +80,9 @@ class RecommendationEngine:
                 continue
         self.plex.set_collection_members(collection_name, items)
 
-    def build_movie_collection(self, limit: int = 10) -> List[Recommendation]:
+    def build_movie_collection(self, limit: int = 10, days: int = 30) -> List[Recommendation]:
         recommendations: List[Recommendation] = []
-        for movie in self.plex.recently_watched_movies(limit=limit):
+        for movie in self.plex.recently_watched_movies(days=days):
             recommendations.extend(self.top_recommendations_for_item(movie, media_type="movie"))
         unique: List[Recommendation] = []
         seen = set()
@@ -95,9 +95,9 @@ class RecommendationEngine:
         self._refresh_collection("Recommended Movies", final)
         return final
 
-    def build_show_collection(self, limit: int = 10) -> List[Recommendation]:
+    def build_show_collection(self, limit: int = 10, days: int = 30) -> List[Recommendation]:
         recommendations: List[Recommendation] = []
-        for show in self.plex.recently_watched_shows(limit=limit):
+        for show in self.plex.recently_watched_shows(days=days):
             recommendations.extend(self.top_recommendations_for_item(show, media_type="tv"))
         unique: List[Recommendation] = []
         seen = set()

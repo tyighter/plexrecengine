@@ -64,8 +64,8 @@ async def dashboard(request: Request):
 
     if settings.is_plex_configured:
         plex = get_plex_service()
-        recent_movies = [_serialize_recent(item, plex.poster_url) for item in plex.recently_watched_movies(limit=10)]
-        recent_shows = [_serialize_recent(item, plex.poster_url) for item in plex.recently_watched_shows(limit=10)]
+        recent_movies = [_serialize_recent(item, plex.poster_url) for item in plex.recently_watched_movies(max_results=10)]
+        recent_shows = [_serialize_recent(item, plex.poster_url) for item in plex.recently_watched_shows(max_results=10)]
     return templates.TemplateResponse(
         "dashboard.html",
         {

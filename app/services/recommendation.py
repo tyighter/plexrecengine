@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 from app.services.letterboxd_client import LetterboxdClient, MediaProfile, profile_similarity
 from app.services.plex_service import PlexService
@@ -21,7 +21,7 @@ class RecommendationEngine:
         self.plex = plex
         self.letterboxd = letterboxd
 
-    def _profile_for_item(self, item, media_type: str) -> MediaProfile:
+    def _profile_for_item(self, item, media_type: str) -> Optional[MediaProfile]:
         guid = item.guid or ""
         tmdb_prefix = "tmdb://"
         tmdb_id = None
@@ -31,7 +31,9 @@ class RecommendationEngine:
             except ValueError:
                 pass
         if tmdb_id is None:
-            raise RuntimeError(f"Item {item.title} missing tmdb id in guid")
+            tmdb_id = self.letterboxd.search_tmdb_id(item.title, media_type, getattr(item, "year", None))
+        if tmdb_id is None:
+            return None
         return self.letterboxd.fetch_profile(tmdb_id, media_type)
 
     def _score_related(self, source_profile: MediaProfile, candidates: Iterable[MediaProfile]) -> List[Tuple[MediaProfile, float]]:
@@ -47,6 +49,8 @@ class RecommendationEngine:
 
     def top_recommendations_for_item(self, item, media_type: str, count: int = 3) -> List[Recommendation]:
         source_profile = self._profile_for_item(item, media_type)
+        if source_profile is None:
+            return []
         related = self.letterboxd.search_related(source_profile, limit=20)
         scored = self._score_related(source_profile, related)
         recommendations: List[Recommendation] = []

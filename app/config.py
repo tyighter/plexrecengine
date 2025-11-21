@@ -1,11 +1,12 @@
-from pydantic import HttpUrl, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+
+from pydantic import HttpUrl, computed_field, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    plex_base_url: HttpUrl
-    plex_token: str
+    plex_base_url: HttpUrl | None = None
+    plex_token: str | None = None
     plex_library_names: List[str] | None = None
     tmdb_api_key: str | None = None
     letterboxd_session: str | None = None
@@ -16,11 +17,11 @@ class Settings(BaseSettings):
         env_parse_none_str="",
     )
 
-    @field_validator("plex_token")
+    @field_validator("plex_library_names", mode="before")
     @classmethod
-    def ensure_token(cls, value: str) -> str:
-        if not value:
-            raise ValueError("PLEX_TOKEN must be set")
+    def split_library_names(cls, value):
+        if isinstance(value, str):
+            return [name.strip() for name in value.split(",") if name.strip()]
         return value
 
     @model_validator(mode="after")
@@ -28,6 +29,11 @@ class Settings(BaseSettings):
         if not self.plex_library_names:
             self.plex_library_names = ["Movies", "TV Shows"]
         return self
+
+    @computed_field
+    @property
+    def is_plex_configured(self) -> bool:
+        return bool(self.plex_base_url and self.plex_token)
 
 
 settings = Settings()

@@ -8,6 +8,8 @@ from app.config import settings
 
 class PlexService:
     def __init__(self) -> None:
+        if not settings.is_plex_configured:
+            raise RuntimeError("Plex is not configured. Please sign in through the web interface.")
         self.client = PlexServer(str(settings.plex_base_url), settings.plex_token)
 
     def _library_sections(self):

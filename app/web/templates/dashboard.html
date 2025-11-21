@@ -27,7 +27,11 @@
 <main class="container">
     <header>
         <h1>Plex Recommendations</h1>
+        {% if settings.is_plex_configured %}
         <p>Signed into Plex at {{ settings.plex_base_url }}. Recommendations rebuild on startup and when the webhook is called after a watch.</p>
+        {% else %}
+        <p>Plex is not configured yet. Sign in through the web interface to connect your server and start building recommendations.</p>
+        {% endif %}
     </header>
 
     <section>

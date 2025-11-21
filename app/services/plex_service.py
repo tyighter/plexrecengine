@@ -98,10 +98,34 @@ class PlexService:
             item.addCollection(collection)
 
     def poster_url(self, item) -> Optional[str]:
-        try:
-            return self.client.url(item.thumb) if item.thumb else None
-        except Exception:
-            return None
+        """Return a usable poster URL for any Plex item.
+
+        Plex items may expose their artwork in different attributes depending on
+        whether they are movies, shows, episodes, or collections. We try a few
+        options so the UI can display a poster even when the primary thumb is
+        missing. If the attribute already contains a fully-qualified URL, return
+        it directly; otherwise build the server URL so authentication tokens are
+        preserved.
+        """
+
+        poster_candidates = [
+            getattr(item, "thumb", None),
+            getattr(item, "parentThumb", None),
+            getattr(item, "grandparentThumb", None),
+            getattr(item, "art", None),
+        ]
+
+        for poster in poster_candidates:
+            if not poster:
+                continue
+            try:
+                if isinstance(poster, str) and poster.startswith(("http://", "https://")):
+                    return poster
+                return self.client.url(poster, includeToken=True)
+            except Exception:
+                continue
+
+        return None
 
 
 def get_plex_service() -> PlexService:

@@ -6,7 +6,7 @@ from typing import Dict
 
 import yaml
 
-KEYS_PATH = Path("/mnt/disks/ssd/plexrec/app/keys.yml")
+KEYS_PATH = Path("/app/config/keys.yml")
 
 
 def load_keys() -> Dict[str, object]:

@@ -15,4 +15,5 @@ services:
     volumes:
       - ./data:/app/data
       - /mnt/disks/ssd/plexrec/app/logs:/app/logs
+      - /mnt/disks/ssd/plexrec/app/config:/app/config
     restart: unless-stopped

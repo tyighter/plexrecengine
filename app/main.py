@@ -10,7 +10,12 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app.config import settings
-from app.services.plex_auth import check_login, start_login
+from app.services.plex_auth import (
+    check_login,
+    list_available_libraries,
+    save_library_preferences,
+    start_login,
+)
 from app.services.letterboxd_client import get_letterboxd_client
 from app.services.plex_service import get_plex_service
 from app.services.recommendation import RecommendationEngine
@@ -23,6 +28,11 @@ ENV_PATH = Path(".env")
 
 class TmdbKeyRequest(BaseModel):
     apiKey: str
+
+
+class LibrarySelection(BaseModel):
+    movieLibrary: str
+    showLibrary: str
 
 
 @app.on_event("startup")
@@ -69,6 +79,24 @@ async def plex_login_status(pinId: str = Query(..., alias="pinId")):
     if status.status == "invalid":
         raise HTTPException(status_code=404, detail="Invalid PIN identifier")
     return status.dict()
+
+
+@app.get("/api/plex/libraries")
+async def available_libraries():
+    if not settings.is_plex_configured:
+        raise HTTPException(status_code=400, detail="Plex is not configured")
+    try:
+        return list_available_libraries()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/plex/libraries")
+async def update_libraries(payload: LibrarySelection):
+    try:
+        return save_library_preferences(payload.movieLibrary, payload.showLibrary)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/api/tmdb/key")

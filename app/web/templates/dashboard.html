@@ -27,6 +27,11 @@
         .muted {
             color: #6b7280;
         }
+        .grid-two-column {
+            display: grid;
+            gap: 0.75rem 1rem;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
     </style>
 </head>
 <body>
@@ -35,6 +40,7 @@
         <h1>Plex Recommendations</h1>
         {% if settings.is_plex_configured %}
         <p>Signed into Plex at {{ settings.plex_base_url }}. Recommendations rebuild on startup and when the webhook is called after a watch.</p>
+        <p class="muted">Using movie library <strong>{{ settings.plex_movie_library }}</strong> and TV library <strong>{{ settings.plex_show_library }}</strong>.</p>
         {% if not settings.tmdb_api_key %}
         <p class="muted"><strong>TMDB API key is missing.</strong> Add your key so we can fetch metadata and compute recommendations.</p>
         {% endif %}
@@ -47,6 +53,22 @@
             <p id="login-status" class="muted"></p>
         </section>
         {% endif %}
+        <section id="library-selection" aria-label="Library preferences" {% if not settings.is_plex_configured %}hidden{% endif %} data-current-movie="{{ settings.plex_movie_library }}" data-current-show="{{ settings.plex_show_library }}">
+            <p><strong>Choose Plex libraries</strong></p>
+            <p class="muted">Pick which libraries should store movie and TV recommendations. We will remember your choices in <code>.env</code>.</p>
+            <div class="grid-two-column">
+                <label for="movie-library">Movie library
+                    <select id="movie-library" name="movie-library"></select>
+                </label>
+                <label for="show-library">TV library
+                    <select id="show-library" name="show-library"></select>
+                </label>
+            </div>
+            <footer>
+                <button id="save-libraries" role="button">Save Libraries</button>
+                <p id="library-status" class="muted"></p>
+            </footer>
+        </section>
         <section id="tmdb-config" aria-label="TMDB configuration">
             <p><strong>TMDB API Key</strong> {% if settings.tmdb_api_key %}<span class="muted">Configured</span>{% else %}<span class="muted">Not configured</span>{% endif %}</p>
             <p class="muted">We use TMDB to fetch metadata and recommendations. Store your key locally in <code>.env</code>.</p>
@@ -104,6 +126,15 @@
     const statusEl = document.getElementById('login-status');
     let pollInterval;
 
+    const librarySection = document.getElementById('library-selection');
+    const movieSelect = document.getElementById('movie-library');
+    const showSelect = document.getElementById('show-library');
+    const saveLibrariesButton = document.getElementById('save-libraries');
+    const libraryStatus = document.getElementById('library-status');
+    const currentMovieLibrary = librarySection?.dataset.currentMovie;
+    const currentShowLibrary = librarySection?.dataset.currentShow;
+    const isPlexConfigured = {{ 'true' if settings.is_plex_configured else 'false' }};
+
     const tmdbButton = document.getElementById('configure-tmdb');
     const tmdbDialog = document.getElementById('tmdb-dialog');
     const tmdbForm = document.getElementById('tmdb-form');
@@ -113,6 +144,49 @@
     const tmdbCancel = document.getElementById('tmdb-cancel');
     const tmdbConfigured = {{ 'true' if settings.tmdb_api_key else 'false' }};
 
+    function populateSelect(selectEl, options, currentValue) {
+        selectEl.innerHTML = '';
+        options.forEach((option) => {
+            const opt = document.createElement('option');
+            opt.value = option;
+            opt.textContent = option;
+            if (currentValue && currentValue === option) {
+                opt.selected = true;
+            }
+            selectEl.appendChild(opt);
+        });
+        if (!selectEl.value && options.length) {
+            selectEl.value = options[0];
+        }
+    }
+
+    function showLibraries(libraries, defaultsOnly = false) {
+        if (!libraries) return;
+        const movieLibraries = libraries.movie || [];
+        const showLibraries = libraries.show || [];
+        if (!defaultsOnly && !movieLibraries.length && !showLibraries.length) return;
+        librarySection.hidden = false;
+        populateSelect(movieSelect, movieLibraries.length ? movieLibraries : [currentMovieLibrary || 'Movies'], movieSelect.value || currentMovieLibrary);
+        populateSelect(showSelect, showLibraries.length ? showLibraries : [currentShowLibrary || 'TV Shows'], showSelect.value || currentShowLibrary);
+    }
+
+    async function fetchAvailableLibraries() {
+        if (!isPlexConfigured) return;
+        libraryStatus.textContent = 'Loading libraries from Plex...';
+        try {
+            const response = await fetch('/api/plex/libraries');
+            if (!response.ok) {
+                libraryStatus.textContent = 'Unable to load libraries from Plex.';
+                return;
+            }
+            const data = await response.json();
+            showLibraries(data, true);
+            libraryStatus.textContent = 'Loaded libraries. Update and save to apply changes.';
+        } catch (err) {
+            libraryStatus.textContent = 'Failed to load libraries from Plex.';
+        }
+    }
+
     async function pollStatus(pinId) {
         pollInterval = setInterval(async () => {
             try {
@@ -120,7 +194,8 @@
                 const data = await response.json();
                 if (data.status === 'authorized') {
                     clearInterval(pollInterval);
-                    statusEl.innerHTML = `Connected to ${data.serverName || 'Plex'} at <code>${data.baseUrl}</code>. Token saved. Reload the page to start generating recommendations.`;
+                    statusEl.innerHTML = `Connected to ${data.serverName || 'Plex'} at <code>${data.baseUrl}</code>. Choose your libraries below, then reload the page to start generating recommendations.`;
+                    showLibraries(data.libraries);
                 } else if (data.status === 'expired') {
                     clearInterval(pollInterval);
                     statusEl.textContent = 'Sign-in expired. Please start again.';
@@ -149,6 +224,30 @@
             }
         } catch (err) {
             statusEl.textContent = 'Failed to contact the server. Please try again.';
+        }
+    });
+
+    saveLibrariesButton?.addEventListener('click', async () => {
+        libraryStatus.textContent = 'Saving library preferences...';
+        try {
+            const response = await fetch('/api/plex/libraries', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    movieLibrary: movieSelect.value,
+                    showLibrary: showSelect.value,
+                }),
+            });
+            if (!response.ok) {
+                const error = await response.json();
+                libraryStatus.textContent = error?.detail || 'Unable to save libraries.';
+                return;
+            }
+            libraryStatus.textContent = 'Saved libraries. Reload to apply changes.';
+        } catch (err) {
+            libraryStatus.textContent = 'Failed to save libraries.';
         }
     });
 
@@ -188,6 +287,8 @@
             tmdbInlineStatus.textContent = 'Failed to save key. Please try again.';
         }
     });
+
+    fetchAvailableLibraries();
 </script>
 </body>
 </html>

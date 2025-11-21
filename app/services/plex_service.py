@@ -13,7 +13,7 @@ class PlexService:
         self.client = PlexServer(str(settings.plex_base_url), settings.plex_token)
 
     def _library_sections(self):
-        for name in settings.plex_library_names:
+        for name in [settings.plex_movie_library, settings.plex_show_library]:
             try:
                 yield self.client.library.section(name)
             except Exception:
@@ -55,11 +55,35 @@ class PlexService:
             except Exception:
                 continue
 
-    def ensure_collection(self, title: str):
-        return self.client.collection(title) if any(c.title == title for c in self.client.collections()) else self.client.createCollection(title)
+    def _find_section_for_item(self, item):
+        section_id = getattr(item, "librarySectionID", None)
+        if section_id is not None:
+            try:
+                return self.client.library.sectionByID(section_id)
+            except Exception:
+                pass
+
+        item_type = getattr(item, "type", None)
+        if item_type:
+            for section in self._library_sections():
+                if section.TYPE == item_type:
+                    return section
+        return None
+
+    def ensure_collection(self, title: str, section):
+        existing = next((c for c in section.collections() if c.title == title), None)
+        return existing or section.createCollection(title)
 
     def set_collection_members(self, collection_name: str, items: Iterable):
-        collection = self.ensure_collection(collection_name)
+        items = list(items)
+        if not items:
+            return
+
+        section = self._find_section_for_item(items[0])
+        if section is None:
+            raise RuntimeError("Unable to determine library section for collection members")
+
+        collection = self.ensure_collection(collection_name, section)
         collection.deleteItems(collection.items())
         for item in items:
             item.addCollection(collection)

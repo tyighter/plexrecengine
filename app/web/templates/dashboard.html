@@ -278,6 +278,9 @@
                     clearInterval(pollInterval);
                     statusEl.innerHTML = `Connected to ${data.serverName || 'Plex'} at <code>${data.baseUrl}</code>. Choose your libraries below, then reload the page to start generating recommendations.`;
                     showLibraries(data.libraries);
+                } else if (data.status === 'invalid') {
+                    clearInterval(pollInterval);
+                    statusEl.textContent = 'Sign-in link is no longer valid. Please start again.';
                 } else if (data.status === 'expired') {
                     clearInterval(pollInterval);
                     statusEl.textContent = 'Sign-in expired. Please start again.';

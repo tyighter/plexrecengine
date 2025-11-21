@@ -87,8 +87,6 @@ async def start_plex_login():
 @app.get("/api/plex/login/status")
 async def plex_login_status(pinId: str = Query(..., alias="pinId")):
     status = check_login(pinId)
-    if status.status == "invalid":
-        raise HTTPException(status_code=404, detail="Invalid PIN identifier")
     return status.dict()
 
 

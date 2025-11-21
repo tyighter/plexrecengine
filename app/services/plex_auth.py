@@ -14,7 +14,7 @@ from app.config import save_config, settings
 _PENDING_LOGINS: Dict[str, tuple[MyPlexPinLogin, datetime]] = {}
 _LOGIN_TIMEOUT = timedelta(minutes=10)
 ENV_PATH = Path(".env")
-LOG_DIR = Path("/logs")
+LOG_DIR = Path("/app/logs")
 LOG_FILE = LOG_DIR / "plex.log"
 
 

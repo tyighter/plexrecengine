@@ -59,7 +59,9 @@ def _connect_server(account: MyPlexAccount) -> Optional[PlexServer]:
         if "server" not in resource.provides:
             continue
         try:
-            return resource.connect()
+            # Avoid long hangs when Plex servers are unreachable by limiting the
+            # per-connection timeout.
+            return resource.connect(timeout=5)
         except Exception:
             continue
     return None

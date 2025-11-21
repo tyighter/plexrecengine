@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Iterable, List, Optional
 
 from plexapi.server import PlexServer
@@ -19,19 +19,29 @@ class PlexService:
             except Exception:
                 continue
 
-    def recently_watched_movies(self, limit: int = 10):
+    def recently_watched_movies(self, days: int = 30, max_results: Optional[int] = None):
+        cutoff = datetime.now() - timedelta(days=days)
         movies = []
         for section in self._library_sections():
             if section.TYPE == "movie":
-                movies.extend(section.search(sort="lastViewedAt:desc", unwatched=False)[: limit * 2])
+                for movie in section.search(sort="lastViewedAt:desc", unwatched=False):
+                    last_viewed = getattr(movie, "lastViewedAt", None)
+                    if last_viewed and last_viewed >= cutoff:
+                        movies.append(movie)
         sorted_items = sorted(movies, key=lambda m: getattr(m, "lastViewedAt", None) or datetime.min, reverse=True)
-        return sorted_items[:limit]
+        if max_results:
+            return sorted_items[:max_results]
+        return sorted_items
 
-    def recently_watched_shows(self, limit: int = 10):
+    def recently_watched_shows(self, days: int = 30, max_results: Optional[int] = None):
+        cutoff = datetime.now() - timedelta(days=days)
         episodes = []
         for section in self._library_sections():
             if section.TYPE == "show":
-                episodes.extend(section.search(sort="lastViewedAt:desc", unwatched=False)[: limit * 3])
+                for episode in section.search(sort="lastViewedAt:desc", unwatched=False):
+                    last_viewed = getattr(episode, "lastViewedAt", None)
+                    if last_viewed and last_viewed >= cutoff:
+                        episodes.append(episode)
         sorted_eps = sorted(episodes, key=lambda e: getattr(e, "lastViewedAt", None) or datetime.min, reverse=True)
         shows = []
         seen_keys = set()
@@ -50,7 +60,7 @@ class PlexService:
                     continue
 
             shows.append(show_item)
-            if len(shows) >= limit:
+            if max_results and len(shows) >= max_results:
                 break
         return shows
 

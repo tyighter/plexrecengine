@@ -21,6 +21,12 @@
         header {
             margin-bottom: 2rem;
         }
+        dialog {
+            max-width: 26rem;
+        }
+        .muted {
+            color: #6b7280;
+        }
     </style>
 </head>
 <body>
@@ -29,6 +35,9 @@
         <h1>Plex Recommendations</h1>
         {% if settings.is_plex_configured %}
         <p>Signed into Plex at {{ settings.plex_base_url }}. Recommendations rebuild on startup and when the webhook is called after a watch.</p>
+        {% if not settings.tmdb_api_key %}
+        <p class="muted"><strong>TMDB API key is missing.</strong> Add your key so we can fetch metadata and compute recommendations.</p>
+        {% endif %}
         {% else %}
         <p>Plex is not configured yet. Sign in through the web interface to connect your server and start building recommendations.</p>
         <section id="connect-plex" aria-label="Plex connection">
@@ -38,6 +47,12 @@
             <p id="login-status" class="muted"></p>
         </section>
         {% endif %}
+        <section id="tmdb-config" aria-label="TMDB configuration">
+            <p><strong>TMDB API Key</strong> {% if settings.tmdb_api_key %}<span class="muted">Configured</span>{% else %}<span class="muted">Not configured</span>{% endif %}</p>
+            <p class="muted">We use TMDB to fetch metadata and recommendations. Store your key locally in <code>.env</code>.</p>
+            <button id="configure-tmdb" role="button">{{ 'Update TMDB Key' if settings.tmdb_api_key else 'Add TMDB Key' }}</button>
+            <p id="tmdb-status" class="muted"></p>
+        </section>
     </header>
 
     <section>
@@ -68,10 +83,35 @@
         </div>
     </section>
 </main>
+<dialog id="tmdb-dialog">
+    <article>
+        <header>
+            <h3>Enter TMDB API Key</h3>
+        </header>
+        <form id="tmdb-form">
+            <label for="tmdb-api-key">API Key</label>
+            <input id="tmdb-api-key" name="tmdb-api-key" type="text" required placeholder="Paste your TMDB API key" />
+            <p id="tmdb-inline-status" class="muted"></p>
+            <footer>
+                <button type="submit">Save Key</button>
+                <button type="button" id="tmdb-cancel" class="secondary">Cancel</button>
+            </footer>
+        </form>
+    </article>
+</dialog>
 <script>
     const startButton = document.getElementById('start-login');
     const statusEl = document.getElementById('login-status');
     let pollInterval;
+
+    const tmdbButton = document.getElementById('configure-tmdb');
+    const tmdbDialog = document.getElementById('tmdb-dialog');
+    const tmdbForm = document.getElementById('tmdb-form');
+    const tmdbInput = document.getElementById('tmdb-api-key');
+    const tmdbStatus = document.getElementById('tmdb-status');
+    const tmdbInlineStatus = document.getElementById('tmdb-inline-status');
+    const tmdbCancel = document.getElementById('tmdb-cancel');
+    const tmdbConfigured = {{ 'true' if settings.tmdb_api_key else 'false' }};
 
     async function pollStatus(pinId) {
         pollInterval = setInterval(async () => {
@@ -109,6 +149,43 @@
             }
         } catch (err) {
             statusEl.textContent = 'Failed to contact the server. Please try again.';
+        }
+    });
+
+    tmdbButton?.addEventListener('click', () => {
+        tmdbInput.value = '';
+        tmdbInlineStatus.textContent = '';
+        tmdbDialog.showModal();
+    });
+
+    tmdbCancel?.addEventListener('click', () => {
+        tmdbDialog.close();
+    });
+
+    tmdbForm?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        tmdbInlineStatus.textContent = 'Saving key...';
+        try {
+            const response = await fetch('/api/tmdb/key', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ apiKey: tmdbInput.value.trim() }),
+            });
+            if (!response.ok) {
+                const error = await response.json();
+                tmdbInlineStatus.textContent = error?.detail || 'Unable to save key.';
+                return;
+            }
+            tmdbInlineStatus.textContent = 'Saved! Reload the page to start building recommendations.';
+            tmdbStatus.textContent = 'TMDB key saved locally. Reload to apply changes.';
+            if (!tmdbConfigured) {
+                tmdbStatus.textContent += ' Recommendations will load after reload.';
+            }
+            setTimeout(() => tmdbDialog.close(), 600);
+        } catch (err) {
+            tmdbInlineStatus.textContent = 'Failed to save key. Please try again.';
         }
     });
 </script>

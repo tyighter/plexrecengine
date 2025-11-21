@@ -9,6 +9,7 @@ from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 from plexapi.server import PlexServer
 
 from app.config import save_config, settings
+from app.keys_store import persist_keys
 from app.services.plex_logging import LOG_FILE, get_plex_logger
 
 _PENDING_LOGINS: Dict[str, tuple[MyPlexPinLogin, datetime]] = {}
@@ -130,6 +131,13 @@ def _persist_settings(base_url: str, token: str, movie_library: str, show_librar
     set_key(str(ENV_PATH), "PLEX_LIBRARY_NAMES", ",".join([movie_library, show_library]))
     set_key(str(ENV_PATH), "PLEX_MOVIE_LIBRARY", movie_library)
     set_key(str(ENV_PATH), "PLEX_SHOW_LIBRARY", show_library)
+    persist_keys(
+        plex_base_url=base_url,
+        plex_token=token,
+        plex_library_names=[movie_library, show_library],
+        plex_movie_library=movie_library,
+        plex_show_library=show_library,
+    )
     save_config(
         {
             "PLEX_BASE_URL": base_url,

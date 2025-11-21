@@ -32,27 +32,35 @@
             gap: 0.75rem 1rem;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         }
+        .header-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            align-items: center;
+            justify-content: space-between;
+        }
     </style>
 </head>
 <body>
 <main class="container">
     <header>
-        <h1>Plex Recommendations</h1>
-        {% if settings.is_plex_configured %}
-        <p>Signed into Plex at {{ settings.plex_base_url }}. Build recommendations on demand or when the webhook is called after a watch.</p>
-        <p class="muted">Using movie library <strong>{{ settings.plex_movie_library }}</strong> and TV library <strong>{{ settings.plex_show_library }}</strong>.</p>
-        {% if not settings.tmdb_api_key %}
-        <p class="muted"><strong>TMDB API key is missing.</strong> Add your key so we can fetch metadata and compute recommendations.</p>
-        {% endif %}
-        {% else %}
-        <p>Plex is not configured yet. Sign in through the web interface to connect your server and start building recommendations.</p>
-        <section id="connect-plex" aria-label="Plex connection">
-            <p><strong>Connect to Plex</strong></p>
-            <p>Start the Plex OAuth flow, approve the app, and we will store the server address, token, and library names in your <code>.env</code> file automatically.</p>
-            <button id="start-login" role="button">Start Plex Sign In</button>
-            <p id="login-status" class="muted"></p>
-        </section>
-        {% endif %}
+        <div class="header-actions">
+            <div>
+                <h1>Plex Recommendations</h1>
+                {% if settings.is_plex_configured %}
+                <p>Signed into Plex at {{ settings.plex_base_url }}. Build recommendations on demand or when the webhook is called after a watch.</p>
+                <p class="muted">Using movie library <strong>{{ settings.plex_movie_library }}</strong> and TV library <strong>{{ settings.plex_show_library }}</strong>.</p>
+                {% else %}
+                <p class="muted">Plex is not configured yet. Use the settings modal to connect your server and add TMDB.</p>
+                {% endif %}
+                {% if not settings.tmdb_api_key %}
+                <p class="muted"><strong>TMDB API key is missing.</strong> Add your key so we can fetch metadata and compute recommendations.</p>
+                {% endif %}
+            </div>
+            <div>
+                <button id="open-settings" role="button">Open Sign-In &amp; API Settings</button>
+            </div>
+        </div>
         <section id="library-selection" aria-label="Library preferences" {% if not settings.is_plex_configured %}hidden{% endif %} data-current-movie="{{ settings.plex_movie_library }}" data-current-show="{{ settings.plex_show_library }}">
             <p><strong>Choose Plex libraries</strong></p>
             <p class="muted">Pick which libraries should store movie and TV recommendations. We will remember your choices in <code>.env</code>.</p>
@@ -68,12 +76,6 @@
                 <button id="save-libraries" role="button">Save Libraries</button>
                 <p id="library-status" class="muted"></p>
             </footer>
-        </section>
-        <section id="tmdb-config" aria-label="TMDB configuration">
-            <p><strong>TMDB API Key</strong> {% if settings.tmdb_api_key %}<span class="muted">Configured</span>{% else %}<span class="muted">Not configured</span>{% endif %}</p>
-            <p class="muted">We use TMDB to fetch metadata and recommendations. Store your key locally in <code>.env</code>.</p>
-            <button id="configure-tmdb" role="button">{{ 'Update TMDB Key' if settings.tmdb_api_key else 'Add TMDB Key' }}</button>
-            <p id="tmdb-status" class="muted"></p>
         </section>
     </header>
 
@@ -129,20 +131,34 @@
         <div id="recommended-shows" class="poster-grid"></div>
     </section>
 </main>
-<dialog id="tmdb-dialog">
+<dialog id="settings-dialog">
     <article>
-        <header>
-            <h3>Enter TMDB API Key</h3>
+        <header class="header-actions">
+            <div>
+                <h3>Server &amp; API Settings</h3>
+                <p class="muted">Authorize Plex and store keys in a host-accessible <code>keys.yml</code>.</p>
+            </div>
+            <button type="button" id="close-settings" class="secondary">Close</button>
         </header>
-        <form id="tmdb-form">
-            <label for="tmdb-api-key">API Key</label>
-            <input id="tmdb-api-key" name="tmdb-api-key" type="text" required placeholder="Paste your TMDB API key" />
-            <p id="tmdb-inline-status" class="muted"></p>
-            <footer>
-                <button type="submit">Save Key</button>
-                <button type="button" id="tmdb-cancel" class="secondary">Cancel</button>
-            </footer>
-        </form>
+        <section id="connect-plex" aria-label="Plex connection">
+            <p><strong>Connect to Plex</strong></p>
+            <p class="muted">Start the Plex OAuth flow, approve the app, and we will store the server address, token, and library names in your configuration files automatically.</p>
+            <button id="start-login" role="button">Start Plex Sign In</button>
+            <p id="login-status" class="muted"></p>
+        </section>
+        <section id="tmdb-config" aria-label="TMDB configuration">
+            <p><strong>TMDB API Key</strong> {% if settings.tmdb_api_key %}<span class="muted">Configured</span>{% else %}<span class="muted">Not configured</span>{% endif %}</p>
+            <p class="muted">We use TMDB to fetch metadata and recommendations. Store your key locally for reuse.</p>
+            <form id="tmdb-form">
+                <label for="tmdb-api-key">API Key</label>
+                <input id="tmdb-api-key" name="tmdb-api-key" type="text" required placeholder="Paste your TMDB API key" />
+                <p id="tmdb-inline-status" class="muted"></p>
+                <footer>
+                    <button type="submit">Save Key</button>
+                </footer>
+            </form>
+            <p id="tmdb-status" class="muted"></p>
+        </section>
     </article>
 </dialog>
 <script>
@@ -157,16 +173,16 @@
     const libraryStatus = document.getElementById('library-status');
     const currentMovieLibrary = librarySection?.dataset.currentMovie;
     const currentShowLibrary = librarySection?.dataset.currentShow;
-    const isPlexConfigured = {{ 'true' if settings.is_plex_configured else 'false' }};
+    const isPlexConfigured = "{{ 'true' if settings.is_plex_configured else 'false' }}" === "true";
 
-    const tmdbButton = document.getElementById('configure-tmdb');
-    const tmdbDialog = document.getElementById('tmdb-dialog');
+    const settingsDialog = document.getElementById('settings-dialog');
+    const openSettings = document.getElementById('open-settings');
+    const closeSettings = document.getElementById('close-settings');
     const tmdbForm = document.getElementById('tmdb-form');
     const tmdbInput = document.getElementById('tmdb-api-key');
     const tmdbStatus = document.getElementById('tmdb-status');
     const tmdbInlineStatus = document.getElementById('tmdb-inline-status');
-    const tmdbCancel = document.getElementById('tmdb-cancel');
-    const tmdbConfigured = {{ 'true' if settings.tmdb_api_key else 'false' }};
+    const tmdbConfigured = "{{ 'true' if settings.tmdb_api_key else 'false' }}" === "true";
 
     const recommendationStatus = document.getElementById('recommendation-status');
     const generateButton = document.getElementById('generate-recommendations');
@@ -336,14 +352,14 @@
         }
     });
 
-    tmdbButton?.addEventListener('click', () => {
+    openSettings?.addEventListener('click', () => {
         tmdbInput.value = '';
         tmdbInlineStatus.textContent = '';
-        tmdbDialog.showModal();
+        settingsDialog.showModal();
     });
 
-    tmdbCancel?.addEventListener('click', () => {
-        tmdbDialog.close();
+    closeSettings?.addEventListener('click', () => {
+        settingsDialog.close();
     });
 
     tmdbForm?.addEventListener('submit', async (event) => {
@@ -367,7 +383,7 @@
             if (!tmdbConfigured) {
                 tmdbStatus.textContent += ' Recommendations will load after reload.';
             }
-            setTimeout(() => tmdbDialog.close(), 600);
+            setTimeout(() => settingsDialog.close(), 600);
         } catch (err) {
             tmdbInlineStatus.textContent = 'Failed to save key. Please try again.';
         }

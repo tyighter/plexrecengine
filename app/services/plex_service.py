@@ -23,7 +23,7 @@ class PlexService:
         movies = []
         for section in self._library_sections():
             if section.TYPE == "movie":
-                movies.extend(section.search(sort="viewedAt:desc", unwatched=False)[: limit * 2])
+                movies.extend(section.search(sort="lastViewedAt:desc", unwatched=False)[: limit * 2])
         sorted_items = sorted(movies, key=lambda m: m.viewedAt or datetime.min, reverse=True)
         return sorted_items[:limit]
 
@@ -31,7 +31,7 @@ class PlexService:
         episodes = []
         for section in self._library_sections():
             if section.TYPE == "show":
-                episodes.extend(section.search(sort="viewedAt:desc", unwatched=False)[: limit * 3])
+                episodes.extend(section.search(sort="lastViewedAt:desc", unwatched=False)[: limit * 3])
         sorted_eps = sorted(episodes, key=lambda e: e.viewedAt or datetime.min, reverse=True)
         shows = []
         seen_keys = set()

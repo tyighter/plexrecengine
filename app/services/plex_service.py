@@ -36,11 +36,20 @@ class PlexService:
         shows = []
         seen_keys = set()
         for ep in sorted_eps:
-            show = ep.grandparentTitle
-            if show in seen_keys:
+            show_title = getattr(ep, "grandparentTitle", None) or getattr(ep, "title", None)
+            if not show_title or show_title in seen_keys:
                 continue
-            seen_keys.add(show)
-            shows.append(ep.show())
+            seen_keys.add(show_title)
+
+            if getattr(ep, "type", None) == "show":
+                show_item = ep
+            else:
+                try:
+                    show_item = ep.show()
+                except Exception:
+                    continue
+
+            shows.append(show_item)
             if len(shows) >= limit:
                 break
         return shows

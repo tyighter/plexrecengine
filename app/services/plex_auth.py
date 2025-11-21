@@ -20,6 +20,7 @@ LOG_FILE = LOG_DIR / "plex.log"
 
 def _get_logger() -> logging.Logger:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_FILE.touch(exist_ok=True)
 
     logger = logging.getLogger("plex_signin")
     logger.setLevel(logging.DEBUG)

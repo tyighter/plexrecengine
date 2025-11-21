@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from pathlib import Path
+
+from dotenv import set_key
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 from app.config import settings
 from app.services.plex_auth import check_login, start_login
@@ -14,11 +18,16 @@ from app.services.recommendation import RecommendationEngine
 app = FastAPI(title="Plex Recommendation Engine")
 templates = Jinja2Templates(directory="app/web/templates")
 app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
+ENV_PATH = Path(".env")
+
+
+class TmdbKeyRequest(BaseModel):
+    apiKey: str
 
 
 @app.on_event("startup")
 async def startup_build_collections():
-    if not settings.is_plex_configured:
+    if not settings.is_plex_configured or not settings.tmdb_api_key:
         return
     plex = get_plex_service()
     letterboxd = get_letterboxd_client()
@@ -29,7 +38,7 @@ async def startup_build_collections():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    if settings.is_plex_configured:
+    if settings.is_plex_configured and settings.tmdb_api_key:
         plex = get_plex_service()
         letterboxd = get_letterboxd_client()
         engine = RecommendationEngine(plex, letterboxd)
@@ -60,6 +69,17 @@ async def plex_login_status(pinId: str = Query(..., alias="pinId")):
     if status.status == "invalid":
         raise HTTPException(status_code=404, detail="Invalid PIN identifier")
     return status.dict()
+
+
+@app.post("/api/tmdb/key")
+async def set_tmdb_api_key(payload: TmdbKeyRequest):
+    api_key = payload.apiKey.strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API key is required")
+    ENV_PATH.touch(exist_ok=True)
+    set_key(str(ENV_PATH), "TMDB_API_KEY", api_key)
+    settings.tmdb_api_key = api_key
+    return {"status": "ok"}
 
 
 @app.post("/webhook")

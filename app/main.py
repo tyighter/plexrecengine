@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from dotenv import set_key
@@ -49,11 +50,19 @@ def _serialize_recent(item, poster_url):
 async def startup_build_collections():
     if not settings.is_plex_configured or not settings.tmdb_api_key:
         return
-    plex = get_plex_service()
-    letterboxd = get_letterboxd_client()
-    engine = RecommendationEngine(plex, letterboxd)
-    engine.build_movie_collection()
-    engine.build_show_collection()
+
+    loop = asyncio.get_event_loop()
+
+    def build_collections():
+        plex = get_plex_service()
+        letterboxd = get_letterboxd_client()
+        engine = RecommendationEngine(plex, letterboxd)
+        engine.build_movie_collection()
+        engine.build_show_collection()
+
+    # Run the expensive collection refresh in the background so startup
+    # doesn't block the first page load after configuration.
+    loop.create_task(loop.run_in_executor(None, build_collections))
 
 
 @app.get("/", response_class=HTMLResponse)

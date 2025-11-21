@@ -113,6 +113,19 @@ class LetterboxdClient:
             letterboxd_vote_count=votes,
         )
 
+    def search_tmdb_id(self, title: str, media_type: str, year: Optional[int] = None) -> Optional[int]:
+        params = {"query": title}
+        if year:
+            key = "year" if media_type == "movie" else "first_air_date_year"
+            params[key] = year
+        response = self.client.get(f"/search/{media_type}", params=params)
+        results = response.json().get("results", [])
+        for entry in results:
+            tmdb_id = entry.get("id")
+            if tmdb_id is not None:
+                return tmdb_id
+        return None
+
     def search_related(self, profile: MediaProfile, limit: int = 15) -> List[MediaProfile]:
         similar = self.client.get(f"/{profile.media_type}/{profile.tmdb_id}/similar").json().get("results", [])
         recommendations: List[MediaProfile] = []

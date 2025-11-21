@@ -39,7 +39,7 @@
     <header>
         <h1>Plex Recommendations</h1>
         {% if settings.is_plex_configured %}
-        <p>Signed into Plex at {{ settings.plex_base_url }}. Recommendations rebuild on startup and when the webhook is called after a watch.</p>
+        <p>Signed into Plex at {{ settings.plex_base_url }}. Build recommendations on demand or when the webhook is called after a watch.</p>
         <p class="muted">Using movie library <strong>{{ settings.plex_movie_library }}</strong> and TV library <strong>{{ settings.plex_show_library }}</strong>.</p>
         {% if not settings.tmdb_api_key %}
         <p class="muted"><strong>TMDB API key is missing.</strong> Add your key so we can fetch metadata and compute recommendations.</p>
@@ -78,31 +78,55 @@
     </header>
 
     <section>
-        <h2>Recommended Movies</h2>
-        <div class="poster-grid">
-            {% for movie in movies %}
+        <h2>Recently Watched Movies</h2>
+        <p class="muted">Showing the ten most recent items from your selected libraries.</p>
+        <div id="recent-movies" class="poster-grid">
+            {% for movie in recent_movies %}
             <article class="poster-card">
                 {% if movie.poster %}
                 <img src="{{ movie.poster }}" alt="{{ movie.title }} poster" />
                 {% endif %}
-                <p><strong>{{ movie.title }}</strong><br><small>Score: {{ movie.score }}{% if movie.letterboxd_rating %} · Letterboxd: {{ movie.letterboxd_rating }}{% endif %}</small></p>
+                <p><strong>{{ movie.title }}</strong><br><small>{% if movie.year %}{{ movie.year }} · {% endif %}{{ movie.library or 'Movies' }}</small></p>
             </article>
             {% endfor %}
+            {% if not recent_movies %}
+            <p class="muted">Watch something in Plex to see it appear here.</p>
+            {% endif %}
         </div>
     </section>
 
     <section>
-        <h2>Recommended Shows</h2>
-        <div class="poster-grid">
-            {% for show in shows %}
+        <h2>Recently Watched Shows</h2>
+        <p class="muted">One entry per show, based on your last watched episodes.</p>
+        <div id="recent-shows" class="poster-grid">
+            {% for show in recent_shows %}
             <article class="poster-card">
                 {% if show.poster %}
                 <img src="{{ show.poster }}" alt="{{ show.title }} poster" />
                 {% endif %}
-                <p><strong>{{ show.title }}</strong><br><small>Score: {{ show.score }}{% if show.letterboxd_rating %} · Letterboxd: {{ show.letterboxd_rating }}{% endif %}</small></p>
+                <p><strong>{{ show.title }}</strong><br><small>{% if show.year %}{{ show.year }} · {% endif %}{{ show.library or 'TV Shows' }}</small></p>
             </article>
             {% endfor %}
+            {% if not recent_shows %}
+            <p class="muted">Watch something in Plex to see it appear here.</p>
+            {% endif %}
         </div>
+    </section>
+
+    <section>
+        <header class="grid-two-column" style="align-items: center;">
+            <div>
+                <h2>Recommendations</h2>
+                <p id="recommendation-status" class="muted">Generate fresh recommendations when you're ready.</p>
+            </div>
+            <div style="text-align: right;">
+                <button id="generate-recommendations" role="button" {% if not settings.is_plex_configured or not settings.tmdb_api_key %}disabled{% endif %}>Generate Recommendations</button>
+            </div>
+        </header>
+        <h3>Movies</h3>
+        <div id="recommended-movies" class="poster-grid"></div>
+        <h3>Shows</h3>
+        <div id="recommended-shows" class="poster-grid"></div>
     </section>
 </main>
 <dialog id="tmdb-dialog">
@@ -143,6 +167,64 @@
     const tmdbInlineStatus = document.getElementById('tmdb-inline-status');
     const tmdbCancel = document.getElementById('tmdb-cancel');
     const tmdbConfigured = {{ 'true' if settings.tmdb_api_key else 'false' }};
+
+    const recommendationStatus = document.getElementById('recommendation-status');
+    const generateButton = document.getElementById('generate-recommendations');
+    const recommendedMoviesEl = document.getElementById('recommended-movies');
+    const recommendedShowsEl = document.getElementById('recommended-shows');
+    const initialMovies = {{ movies | tojson }};
+    const initialShows = {{ shows | tojson }};
+
+    function renderCards(container, items) {
+        container.innerHTML = '';
+        if (!items || !items.length) {
+            const empty = document.createElement('p');
+            empty.className = 'muted';
+            empty.textContent = 'No results yet.';
+            container.appendChild(empty);
+            return;
+        }
+        items.forEach((item) => {
+            const article = document.createElement('article');
+            article.className = 'poster-card';
+            if (item.poster) {
+                const img = document.createElement('img');
+                img.src = item.poster;
+                img.alt = `${item.title} poster`;
+                article.appendChild(img);
+            }
+            const text = document.createElement('p');
+            text.innerHTML = `<strong>${item.title}</strong><br><small>Score: ${item.score?.toFixed?.(2) ?? item.score ?? 'N/A'}${item.letterboxd_rating ? ` · Letterboxd: ${item.letterboxd_rating}` : ''}</small>`;
+            article.appendChild(text);
+            container.appendChild(article);
+        });
+    }
+
+    async function buildRecommendations() {
+        recommendationStatus.textContent = 'Building recommendations...';
+        generateButton.disabled = true;
+        try {
+            const response = await fetch('/api/recommendations', { method: 'POST' });
+            if (!response.ok) {
+                const error = await response.json();
+                recommendationStatus.textContent = error?.detail || 'Unable to build recommendations.';
+                return;
+            }
+            const data = await response.json();
+            renderCards(recommendedMoviesEl, data.movies || []);
+            renderCards(recommendedShowsEl, data.shows || []);
+            recommendationStatus.textContent = 'Recommendations updated. Check your Plex collections too!';
+        } catch (err) {
+            recommendationStatus.textContent = 'Failed to contact the server. Please try again.';
+        } finally {
+            generateButton.disabled = false;
+        }
+    }
+
+    generateButton?.addEventListener('click', buildRecommendations);
+
+    renderCards(recommendedMoviesEl, initialMovies);
+    renderCards(recommendedShowsEl, initialShows);
 
     function populateSelect(selectEl, options, currentValue) {
         selectEl.innerHTML = '';

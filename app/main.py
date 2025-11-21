@@ -17,6 +17,8 @@ app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
 
 @app.on_event("startup")
 async def startup_build_collections():
+    if not settings.is_plex_configured:
+        return
     plex = get_plex_service()
     letterboxd = get_letterboxd_client()
     engine = RecommendationEngine(plex, letterboxd)
@@ -26,11 +28,15 @@ async def startup_build_collections():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    plex = get_plex_service()
-    letterboxd = get_letterboxd_client()
-    engine = RecommendationEngine(plex, letterboxd)
-    movies = engine.build_movie_collection()
-    shows = engine.build_show_collection()
+    if settings.is_plex_configured:
+        plex = get_plex_service()
+        letterboxd = get_letterboxd_client()
+        engine = RecommendationEngine(plex, letterboxd)
+        movies = engine.build_movie_collection()
+        shows = engine.build_show_collection()
+    else:
+        movies = []
+        shows = []
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -44,9 +50,11 @@ async def dashboard(request: Request):
 
 @app.post("/webhook")
 async def webhook_trigger():
-    plex = get_plex_service()
-    letterboxd = get_letterboxd_client()
-    engine = RecommendationEngine(plex, letterboxd)
-    engine.build_movie_collection()
-    engine.build_show_collection()
-    return {"status": "ok"}
+    if settings.is_plex_configured:
+        plex = get_plex_service()
+        letterboxd = get_letterboxd_client()
+        engine = RecommendationEngine(plex, letterboxd)
+        engine.build_movie_collection()
+        engine.build_show_collection()
+        return {"status": "ok"}
+    return {"status": "skipped", "reason": "Plex is not configured"}

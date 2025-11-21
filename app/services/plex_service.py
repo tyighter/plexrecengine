@@ -95,7 +95,7 @@ class PlexService:
             if section.TYPE != section_type:
                 continue
             try:
-                for item in section.searchTitle(query, unwatched=True):
+                for item in section.search(query, unwatched=True):
                     yield item
             except Exception:
                 LOGGER.exception(

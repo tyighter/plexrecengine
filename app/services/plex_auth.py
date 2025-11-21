@@ -113,12 +113,13 @@ def check_login(pin_id: str) -> PlexLoginStatus:
         return PlexLoginStatus("error")
 
     libraries = _collect_library_names(server)
-    _persist_settings(server.url, pin_login.token, libraries)
+    base_url = server.url("") if callable(getattr(server, "url", None)) else str(server.url)
+    _persist_settings(base_url, pin_login.token, libraries)
     _remove_expired(pin_id)
     return PlexLoginStatus(
         "authorized",
         token=pin_login.token,
-        base_url=server.url,
+        base_url=base_url,
         server_name=getattr(server, "friendlyName", None),
         libraries=libraries,
     )

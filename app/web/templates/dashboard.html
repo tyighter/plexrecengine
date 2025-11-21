@@ -101,7 +101,8 @@
             const response = await fetch('/api/plex/login/start', { method: 'POST' });
             const data = await response.json();
             if (data.authUrl && data.pinId) {
-                statusEl.innerHTML = `Open <a href="${data.authUrl}" target="_blank" rel="noreferrer">Plex</a> to authorize this app, then return here. Waiting for authorization...`;
+                window.open(data.authUrl, '_blank', 'noreferrer');
+                statusEl.innerHTML = `Opening Plex to authorize this app. If a new tab didn't open, <a href="${data.authUrl}" target="_blank" rel="noreferrer">click here</a>. Waiting for authorization...`;
                 pollStatus(data.pinId);
             } else {
                 statusEl.textContent = 'Unable to start Plex sign-in. Please try again.';

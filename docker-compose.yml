@@ -14,4 +14,5 @@ services:
       REDIS_URL: ${REDIS_URL:-}
     volumes:
       - ./data:/app/data
+      - /mnt/disks/ssd/plexrec/app/logs:/app/logs
     restart: unless-stopped

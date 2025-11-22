@@ -42,6 +42,9 @@ def persist_keys(**updates: object):
         "plex_movie_library": "PLEX_MOVIE_LIBRARY",
         "plex_show_library": "PLEX_SHOW_LIBRARY",
         "plex_user_id": "PLEX_USER_ID",
+        "tautulli_base_url": "TAUTULLI_BASE_URL",
+        "tautulli_api_key": "TAUTULLI_API_KEY",
+        "tautulli_user_id": "TAUTULLI_USER_ID",
         "tmdb_api_key": "TMDB_API_KEY",
     }
 

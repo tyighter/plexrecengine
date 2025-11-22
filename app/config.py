@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     plex_movie_library: Optional[str] = None
     plex_show_library: Optional[str] = None
     plex_user_id: str | None = None
+    tautulli_base_url: HttpUrl | None = None
+    tautulli_api_key: str | None = None
+    tautulli_user_id: str | None = None
     tmdb_api_key: str | None = None
     letterboxd_session: str | None = None
     model_config = SettingsConfigDict(
@@ -96,6 +99,11 @@ class Settings(BaseSettings):
     @property
     def is_plex_configured(self) -> bool:
         return bool(self.plex_base_url and self.plex_token)
+
+    @computed_field
+    @property
+    def is_tautulli_configured(self) -> bool:
+        return bool(self.tautulli_base_url and self.tautulli_api_key)
 
 
 settings = Settings()

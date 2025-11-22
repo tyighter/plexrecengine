@@ -141,7 +141,23 @@
             <button id="start-login" role="button">Start Plex Sign In</button>
             <p id="login-status" class="muted"></p>
         </section>
-        <section id="library-selection" aria-label="Library preferences" {% if not settings.is_plex_configured %}hidden{% endif %} data-current-movie="{{ settings.plex_movie_library }}" data-current-show="{{ settings.plex_show_library }}" data-current-user="{{ settings.plex_user_id or '' }}">
+        <section id="tautulli-config" aria-label="Tautulli configuration" data-current-address="{{ settings.tautulli_base_url or '' }}" data-current-user="{{ settings.tautulli_user_id or settings.plex_user_id or '' }}">
+            <p><strong>Connect Tautulli</strong> {% if settings.is_tautulli_configured %}<span class="muted">Configured</span>{% else %}<span class="muted">Not configured</span>{% endif %}</p>
+            <p class="muted">Provide your Tautulli address and API key so we can load user-specific watch history.</p>
+            <div class="grid-two-column">
+                <label for="tautulli-address">Tautulli address
+                    <input id="tautulli-address" name="tautulli-address" type="url" placeholder="https://tautulli.example.com" />
+                </label>
+                <label for="tautulli-api-key">Tautulli API key
+                    <input id="tautulli-api-key" name="tautulli-api-key" type="password" placeholder="Paste your Tautulli API key" />
+                </label>
+            </div>
+            <footer>
+                <button id="save-tautulli" role="button">Save Tautulli Settings</button>
+                <p id="tautulli-status" class="muted"></p>
+            </footer>
+        </section>
+        <section id="library-selection" aria-label="Library preferences" {% if not settings.is_plex_configured %}hidden{% endif %} data-current-movie="{{ settings.plex_movie_library }}" data-current-show="{{ settings.plex_show_library }}" data-current-user="{{ settings.tautulli_user_id or settings.plex_user_id or '' }}">
             <p><strong>Plex preferences</strong></p>
             <p class="muted">Choose which libraries store recommendations and (optionally) filter history to a specific Plex user ID.</p>
             <div class="grid-two-column">
@@ -151,17 +167,21 @@
                 <label for="show-library">TV library
                     <select id="show-library" name="show-library"></select>
                 </label>
-                <label for="plex-user-id">Plex user ID (optional)
-                    <input id="plex-user-id" name="plex-user-id" type="text" placeholder="Leave blank to include all users" list="plex-user-options" />
-                    <datalist id="plex-user-options"></datalist>
-                    <small class="muted">Pick from your Plex users or leave blank to include everyone.</small>
-                </label>
             </div>
-            <p id="plex-user-status" class="muted"></p>
             <footer>
                 <button id="save-libraries" role="button">Save Preferences</button>
                 <p id="library-status" class="muted"></p>
             </footer>
+        </section>
+        <section id="tautulli-users" aria-label="Tautulli users" {% if not settings.is_tautulli_configured %}hidden{% endif %} data-current-user="{{ settings.tautulli_user_id or settings.plex_user_id or '' }}">
+            <p><strong>Select user</strong></p>
+            <p class="muted">Pick your Plex user as reported by Tautulli. Leave blank to include everyone.</p>
+            <label for="tautulli-user-id">Tautulli user
+                <select id="tautulli-user-id" name="tautulli-user-id">
+                    <option value="">All users</option>
+                </select>
+            </label>
+            <p id="tautulli-user-status" class="muted"></p>
         </section>
         <section id="tmdb-config" aria-label="TMDB configuration">
             <p><strong>TMDB API Key</strong> {% if settings.tmdb_api_key %}<span class="muted">Configured</span>{% else %}<span class="muted">Not configured</span>{% endif %}</p>
@@ -186,17 +206,26 @@
     const librarySection = document.getElementById('library-selection');
     const movieSelect = document.getElementById('movie-library');
     const showSelect = document.getElementById('show-library');
-    const plexUserInput = document.getElementById('plex-user-id');
-    const plexUserOptions = document.getElementById('plex-user-options');
-    const plexUserStatus = document.getElementById('plex-user-status');
     const saveLibrariesButton = document.getElementById('save-libraries');
     const libraryStatus = document.getElementById('library-status');
     const currentMovieLibrary = librarySection?.dataset.currentMovie;
     const currentShowLibrary = librarySection?.dataset.currentShow;
     const currentUserId = librarySection?.dataset.currentUser;
     const isPlexConfigured = "{{ 'true' if settings.is_plex_configured else 'false' }}" === "true";
-    if (plexUserInput && currentUserId !== undefined) {
-        plexUserInput.value = currentUserId || '';
+    const tautulliConfigSection = document.getElementById('tautulli-config');
+    const tautulliUsersSection = document.getElementById('tautulli-users');
+    const tautulliAddressInput = document.getElementById('tautulli-address');
+    const tautulliApiKeyInput = document.getElementById('tautulli-api-key');
+    const tautulliStatus = document.getElementById('tautulli-status');
+    const saveTautulliButton = document.getElementById('save-tautulli');
+    const tautulliUserSelect = document.getElementById('tautulli-user-id');
+    const tautulliUserStatus = document.getElementById('tautulli-user-status');
+    const currentTautulliUserId = tautulliUsersSection?.dataset.currentUser || '';
+    const currentTautulliAddress = tautulliConfigSection?.dataset.currentAddress || '';
+    const isTautulliConfigured = "{{ 'true' if settings.is_tautulli_configured else 'false' }}" === "true";
+
+    if (tautulliAddressInput && currentTautulliAddress) {
+        tautulliAddressInput.value = currentTautulliAddress;
     }
 
     const settingsDialog = document.getElementById('settings-dialog');
@@ -380,46 +409,59 @@
         populateSelect(showSelect, showLibraries.length ? showLibraries : [currentShowLibrary || 'TV Shows'], showSelect.value || currentShowLibrary);
     }
 
-    function populateUsers(users = []) {
-        if (!plexUserOptions) return;
-        plexUserOptions.innerHTML = '';
+    function populateTautulliUsers(users = []) {
+        if (!tautulliUserSelect) return;
+        tautulliUserSelect.innerHTML = '';
+
+        const allOption = document.createElement('option');
+        allOption.value = '';
+        allOption.textContent = 'All users';
+        tautulliUserSelect.appendChild(allOption);
 
         users.forEach((user) => {
             if (!user?.id) return;
             const opt = document.createElement('option');
             opt.value = user.id;
             const labelParts = [user.username, user.id].filter(Boolean);
-            opt.label = labelParts.join(' · ');
-            plexUserOptions.appendChild(opt);
+            opt.textContent = labelParts.join(' · ');
+            tautulliUserSelect.appendChild(opt);
         });
 
-        if (plexUserStatus) {
+        const desiredUserId = tautulliUsersSection?.dataset.currentUser || currentTautulliUserId;
+        if (desiredUserId) {
+            tautulliUserSelect.value = desiredUserId;
+        }
+        if (!tautulliUserSelect.value && tautulliUserSelect.options.length) {
+            tautulliUserSelect.value = tautulliUserSelect.options[0].value;
+        }
+
+        if (tautulliUserStatus) {
             if (users.length) {
-                plexUserStatus.textContent = 'Select your Plex user from the list or leave blank to include all users.';
+                tautulliUserStatus.textContent = 'Choose your Tautulli user or leave set to all users.';
             } else {
-                plexUserStatus.textContent = 'No managed Plex users found; leave blank to include everyone.';
+                tautulliUserStatus.textContent = 'No Tautulli users found; leave as all users to include everyone.';
             }
         }
     }
 
-    async function fetchAvailableUsers() {
-        if (!isPlexConfigured) return;
-        if (plexUserStatus) {
-            plexUserStatus.textContent = 'Loading Plex users...';
+    async function fetchTautulliUsers() {
+        if (!isTautulliConfigured) return;
+        if (tautulliUserStatus) {
+            tautulliUserStatus.textContent = 'Loading Tautulli users...';
         }
         try {
-            const response = await fetch('/api/plex/users');
+            const response = await fetch('/api/tautulli/users');
             if (!response.ok) {
-                if (plexUserStatus) {
-                    plexUserStatus.textContent = 'Unable to load Plex users.';
+                if (tautulliUserStatus) {
+                    tautulliUserStatus.textContent = 'Unable to load Tautulli users.';
                 }
                 return;
             }
             const users = await response.json();
-            populateUsers(Array.isArray(users) ? users : []);
+            populateTautulliUsers(Array.isArray(users) ? users : []);
         } catch (err) {
-            if (plexUserStatus) {
-                plexUserStatus.textContent = 'Failed to load Plex users.';
+            if (tautulliUserStatus) {
+                tautulliUserStatus.textContent = 'Failed to load Tautulli users.';
             }
         }
     }
@@ -436,7 +478,6 @@
             const data = await response.json();
             showLibraries(data, true);
             libraryStatus.textContent = 'Loaded libraries. Update and save to apply changes.';
-            fetchAvailableUsers();
         } catch (err) {
             libraryStatus.textContent = 'Failed to load libraries from Plex.';
         }
@@ -447,15 +488,15 @@
             try {
                 const response = await fetch(`/api/plex/login/status?pinId=${encodeURIComponent(pinId)}`);
                 const data = await response.json();
-                if (data.status === 'authorized') {
-                    clearInterval(pollInterval);
-                    statusEl.innerHTML = `Connected to ${data.serverName || 'Plex'} at <code>${data.baseUrl}</code>. Choose your libraries below, then reload the page to start generating recommendations.`;
-                    showLibraries(data.libraries);
-                    fetchAvailableUsers();
-                } else if (data.status === 'invalid') {
-                    clearInterval(pollInterval);
-                    statusEl.textContent = 'Sign-in link is no longer valid. Please start again.';
-                } else if (data.status === 'expired') {
+                    if (data.status === 'authorized') {
+                        clearInterval(pollInterval);
+                        statusEl.innerHTML = `Connected to ${data.serverName || 'Plex'} at <code>${data.baseUrl}</code>. Choose your libraries below, then reload the page to start generating recommendations.`;
+                        showLibraries(data.libraries);
+                        fetchTautulliUsers();
+                    } else if (data.status === 'invalid') {
+                        clearInterval(pollInterval);
+                        statusEl.textContent = 'Sign-in link is no longer valid. Please start again.';
+                    } else if (data.status === 'expired') {
                     clearInterval(pollInterval);
                     statusEl.textContent = 'Sign-in expired. Please start again.';
                 } else if (data.status === 'error') {
@@ -486,6 +527,37 @@
         }
     });
 
+    saveTautulliButton?.addEventListener('click', async () => {
+        tautulliStatus.textContent = 'Saving Tautulli settings...';
+        try {
+            const response = await fetch('/api/tautulli/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    baseUrl: tautulliAddressInput?.value?.trim() ?? '',
+                    apiKey: tautulliApiKeyInput?.value?.trim() ?? '',
+                }),
+            });
+            if (!response.ok) {
+                const error = await response.json();
+                tautulliStatus.textContent = error?.detail || 'Unable to save Tautulli settings.';
+                return;
+            }
+            tautulliStatus.textContent = 'Saved Tautulli settings. Reload to apply changes.';
+            if (tautulliConfigSection && tautulliAddressInput) {
+                tautulliConfigSection.dataset.currentAddress = tautulliAddressInput.value;
+            }
+            if (tautulliUsersSection) {
+                tautulliUsersSection.hidden = false;
+            }
+            fetchTautulliUsers();
+        } catch (err) {
+            tautulliStatus.textContent = 'Failed to save Tautulli settings.';
+        }
+    });
+
     saveLibrariesButton?.addEventListener('click', async () => {
         libraryStatus.textContent = 'Saving Plex preferences...';
         try {
@@ -497,7 +569,7 @@
                 body: JSON.stringify({
                     movieLibrary: movieSelect.value,
                     showLibrary: showSelect.value,
-                    plexUserId: plexUserInput?.value ?? '',
+                    plexUserId: tautulliUserSelect?.value ?? '',
                 }),
             });
             if (!response.ok) {
@@ -509,6 +581,9 @@
             if (librarySection) {
                 librarySection.dataset.currentUser = saved.plex_user_id || '';
             }
+            if (tautulliUsersSection) {
+                tautulliUsersSection.dataset.currentUser = saved.plex_user_id || '';
+            }
             libraryStatus.textContent = 'Saved preferences. Reload to apply changes.';
         } catch (err) {
             libraryStatus.textContent = 'Failed to save preferences.';
@@ -518,8 +593,14 @@
     openSettings?.addEventListener('click', () => {
         tmdbInput.value = '';
         tmdbInlineStatus.textContent = '';
-        if (plexUserInput && librarySection) {
-            plexUserInput.value = librarySection.dataset.currentUser || '';
+        if (tautulliUserSelect && tautulliUsersSection) {
+            tautulliUserSelect.value = tautulliUsersSection.dataset.currentUser || '';
+        }
+        if (tautulliAddressInput && currentTautulliAddress) {
+            tautulliAddressInput.value = currentTautulliAddress;
+        }
+        if (tautulliApiKeyInput) {
+            tautulliApiKeyInput.value = '';
         }
         settingsDialog.showModal();
     });
@@ -556,6 +637,7 @@
     });
 
     fetchAvailableLibraries();
+    fetchTautulliUsers();
     loadRecentActivity();
 </script>
 </body>

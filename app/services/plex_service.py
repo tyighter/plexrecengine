@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import random
 from typing import Iterable, List, Optional
 
+from plexapi.exceptions import NotFound
 from plexapi.server import PlexServer
 
 from app.config import settings
@@ -389,6 +390,12 @@ class PlexService:
 
         try:
             return self.client.fetchItem(key)
+        except NotFound:
+            LOGGER.error(
+                "Plex item not found",
+                extra={"rating_key": rating_key, "resolved_key": key},
+            )
+            return None
         except Exception:
             LOGGER.exception(
                 "Failed to fetch Plex item by rating key",

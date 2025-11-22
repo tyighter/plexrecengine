@@ -42,20 +42,24 @@
         }
         .poster-tooltip {
             position: absolute;
-            left: 0;
-            right: 0;
+            left: 50%;
             bottom: 100%;
-            padding: 0.75rem;
+            max-width: 320px;
+            min-width: 260px;
+            padding: 0.5rem 0.9rem;
             background: rgba(17, 24, 39, 0.95);
             color: #e5e7eb;
             border-radius: 0.75rem;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
             opacity: 0;
             visibility: hidden;
-            transform: translateY(8px);
+            transform: translate(-50%, 8px);
             transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
             text-align: left;
             z-index: 10;
+        }
+        .poster-tooltip p {
+            margin: 0.15rem 0;
         }
         .poster-card:hover .poster-tooltip,
         .poster-card:focus-within .poster-tooltip {

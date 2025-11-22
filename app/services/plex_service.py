@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import random
 from typing import Iterable, List, Optional
 
 from plexapi.server import PlexServer
@@ -138,6 +139,8 @@ class PlexService:
         items = list(items)
         if not items:
             return
+
+        random.shuffle(items)
 
         section = self._find_section_for_item(items[0])
         if section is None:

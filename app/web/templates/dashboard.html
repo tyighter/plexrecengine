@@ -17,6 +17,7 @@
         }
         .poster-card {
             text-align: center;
+            position: relative;
         }
         header {
             margin-bottom: 2rem;
@@ -38,6 +39,29 @@
             gap: 0.75rem;
             align-items: center;
             justify-content: space-between;
+        }
+        .poster-tooltip {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 100%;
+            padding: 0.75rem;
+            background: rgba(17, 24, 39, 0.95);
+            color: #e5e7eb;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(8px);
+            transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+            text-align: left;
+            z-index: 10;
+        }
+        .poster-card:hover .poster-tooltip,
+        .poster-card:focus-within .poster-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
         }
     </style>
 </head>
@@ -81,7 +105,7 @@
 
     <section>
         <h2>Recently Watched Movies</h2>
-        <p class="muted">Showing the ten most recent items from your selected libraries.</p>
+        <p class="muted">Showing everything you've watched in the last 30 days from your selected libraries.</p>
         <div id="recent-movies" class="poster-grid">
             {% for movie in recent_movies %}
             <article class="poster-card">
@@ -99,7 +123,7 @@
 
     <section>
         <h2>Recently Watched Shows</h2>
-        <p class="muted">One entry per show, based on your last watched episodes.</p>
+        <p class="muted">One entry per show from the last 30 days, based on your last watched episodes.</p>
         <div id="recent-shows" class="poster-grid">
             {% for show in recent_shows %}
             <article class="poster-card">
@@ -212,6 +236,19 @@
             const text = document.createElement('p');
             text.innerHTML = `<strong>${item.title}</strong><br><small>Score: ${item.score?.toFixed?.(2) ?? item.score ?? 'N/A'}${item.letterboxd_rating ? ` · Letterboxd: ${item.letterboxd_rating}` : ''}</small>`;
             article.appendChild(text);
+            const tooltip = document.createElement('div');
+            tooltip.className = 'poster-tooltip';
+            const reasonTitle = document.createElement('p');
+            reasonTitle.innerHTML = '<strong>Why this pick?</strong>';
+            const reason = document.createElement('p');
+            reason.textContent = item.reason || 'Picked based on similarity to your recent viewing.';
+            const source = document.createElement('p');
+            source.className = 'muted';
+            source.textContent = item.source_title ? `Triggered by: ${item.source_title}` : 'Triggered by a recent watch.';
+            tooltip.appendChild(reasonTitle);
+            tooltip.appendChild(reason);
+            tooltip.appendChild(source);
+            article.appendChild(tooltip);
             container.appendChild(article);
         });
     }

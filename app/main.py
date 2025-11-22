@@ -182,11 +182,13 @@ async def _generate_recommendations(force: bool = False) -> dict[str, object]:
                 "shows": RECOMMENDATION_CACHE["shows"],
             }
 
-        plex = get_plex_service()
-        letterboxd = get_letterboxd_client()
-        engine = RecommendationEngine(plex, letterboxd)
-        movies = engine.build_movie_collection()
-        shows = engine.build_show_collection()
+        def build_recommendations():
+            plex = get_plex_service()
+            letterboxd = get_letterboxd_client()
+            engine = RecommendationEngine(plex, letterboxd)
+            return engine.build_movie_collection(), engine.build_show_collection()
+
+        movies, shows = await asyncio.to_thread(build_recommendations)
         RECOMMENDATION_CACHE["movies"] = [m.__dict__ for m in movies]
         RECOMMENDATION_CACHE["shows"] = [s.__dict__ for s in shows]
         RECOMMENDATION_CACHE["timestamp"] = time.time()

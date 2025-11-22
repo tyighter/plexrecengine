@@ -14,7 +14,7 @@ class Recommendation:
     score: float
     poster: str | None
     rating_key: int
-    letterboxd_rating: float | None = None
+    tmdb_rating: float | None = None
     source_title: str | None = None
     reason: str | None = None
     score_breakdown: dict[str, float] | None = None
@@ -133,9 +133,9 @@ class RecommendationEngine:
             reason_parts = [
                 f"Recommended because you recently watched {source_label or 'a similar title'}",
             ]
-            if profile.letterboxd_rating:
+            if profile.tmdb_rating:
                 reason_parts.append(
-                    f"It pairs well with {profile.title} (Letterboxd {profile.letterboxd_rating:.1f})"
+                    f"It pairs well with {profile.title} (TMDB {profile.tmdb_rating:.1f})"
                 )
             else:
                 reason_parts.append(f"It pairs well with {profile.title}")
@@ -158,7 +158,7 @@ class RecommendationEngine:
                     score=score,
                     poster=self.plex.poster_url(plex_item),
                     rating_key=plex_item.ratingKey,
-                    letterboxd_rating=profile.letterboxd_rating,
+                    tmdb_rating=profile.tmdb_rating,
                     source_title=source_title,
                     reason=". ".join(reason_parts),
                     score_breakdown=breakdown,

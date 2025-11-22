@@ -18,6 +18,7 @@ class Recommendation:
     source_title: str | None = None
     reason: str | None = None
     score_breakdown: dict[str, float] | None = None
+    commonalities: dict[str, list[str]] | None = None
 
 
 LOGGER = get_generate_logger()
@@ -109,16 +110,47 @@ class RecommendationEngine:
                 continue
 
             plex_item = plex_matches[0]
+            overlap = {
+                "directors": sorted(source_profile.directors & profile.directors),
+                "writers": sorted(source_profile.writers & profile.writers),
+                "cast": sorted(source_profile.cast & profile.cast),
+                "genres": sorted(source_profile.genres & profile.genres),
+                "keywords": sorted(source_profile.keywords & profile.keywords),
+            }
+
+            def describe(values: list[str], label: str) -> str:
+                if not values:
+                    return ""
+                if len(values) == 1:
+                    return f"{label} {values[0]}"
+                sample = values[:3]
+                extra = len(values) - len(sample)
+                sample_text = ", ".join(sample)
+                if extra > 0:
+                    return f"{label} {sample_text} (+{extra} more)"
+                return f"{label} {sample_text}"
+
             reason_parts = [
-                "Recommended because you recently watched",
-                source_label or "a similar title",
+                f"Recommended because you recently watched {source_label or 'a similar title'}",
             ]
             if profile.letterboxd_rating:
                 reason_parts.append(
-                    f"and it pairs well with {profile.title} (Letterboxd {profile.letterboxd_rating:.1f})"
+                    f"It pairs well with {profile.title} (Letterboxd {profile.letterboxd_rating:.1f})"
                 )
             else:
-                reason_parts.append(f"and it pairs well with {profile.title}")
+                reason_parts.append(f"It pairs well with {profile.title}")
+
+            shared_traits = [
+                describe(overlap["directors"], "shares director"),
+                describe(overlap["cast"], "features"),
+                describe(overlap["writers"], "writer"),
+                describe(overlap["genres"], "genre"),
+                describe(overlap["keywords"], "keyword"),
+            ]
+            shared_traits = [part for part in shared_traits if part]
+            if shared_traits:
+                reason_parts.append("Common threads: " + "; ".join(shared_traits))
+
             reason_parts.append(f"Similarity score: {score:.2f}")
             recommendations.append(
                 Recommendation(
@@ -130,6 +162,9 @@ class RecommendationEngine:
                     source_title=source_title,
                     reason=". ".join(reason_parts),
                     score_breakdown=breakdown,
+                    commonalities={
+                        key: value for key, value in overlap.items() if value
+                    },
                 )
             )
             SCORING_LOGGER.info(

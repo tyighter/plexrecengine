@@ -347,6 +347,33 @@
             const source = document.createElement('p');
             source.className = 'muted';
             source.textContent = item.source_title ? `Triggered by: ${item.source_title}` : 'Triggered by a recent watch.';
+            tooltip.appendChild(reasonTitle);
+            tooltip.appendChild(reason);
+            if (item.commonalities && Object.keys(item.commonalities).length) {
+                const sharedTitle = document.createElement('p');
+                const sharedWith = item.source_title || 'your recent watch';
+                sharedTitle.innerHTML = `<strong>Shared with ${sharedWith}</strong>`;
+                const sharedList = document.createElement('ul');
+                sharedList.className = 'score-breakdown';
+                const labels = [
+                    ['directors', 'Directors'],
+                    ['cast', 'Cast'],
+                    ['writers', 'Writers'],
+                    ['genres', 'Genres'],
+                    ['keywords', 'Keywords'],
+                ];
+                labels.forEach(([key, label]) => {
+                    const values = item.commonalities[key];
+                    if (!values || !values.length) return;
+                    const entry = document.createElement('li');
+                    entry.textContent = `${label}: ${values.join(', ')}`;
+                    sharedList.appendChild(entry);
+                });
+                if (sharedList.children.length) {
+                    tooltip.appendChild(sharedTitle);
+                    tooltip.appendChild(sharedList);
+                }
+            }
             if (item.score_breakdown && Object.keys(item.score_breakdown).length) {
                 const breakdownTitle = document.createElement('p');
                 breakdownTitle.innerHTML = '<strong>Score breakdown</strong>';
@@ -373,8 +400,6 @@
                     tooltip.appendChild(breakdownList);
                 }
             }
-            tooltip.appendChild(reasonTitle);
-            tooltip.appendChild(reason);
             tooltip.appendChild(source);
             article.appendChild(tooltip);
             container.appendChild(article);

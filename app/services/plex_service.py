@@ -38,14 +38,16 @@ class PlexService:
             },
         )
 
-    def _history_kwargs(self, section, cutoff: datetime, limit: int):
+    def _history_kwargs(
+        self, section, cutoff: datetime, limit: int, include_account_filter: bool = True
+    ):
         kwargs = {
             "librarySectionID": getattr(section, "key", None),
             "mindate": cutoff,
             "maxresults": limit,
         }
 
-        if self.filter_history_by_user and self._plex_account_id:
+        if include_account_filter and self.filter_history_by_user and self._plex_account_id:
             kwargs["accountID"] = self._plex_account_id
             LOGGER.debug(
                 "Filtering Plex history by user",
@@ -57,6 +59,46 @@ class PlexService:
             )
 
         return kwargs
+
+    def _load_history_entries(self, section, cutoff: datetime, limit: int):
+        try:
+            return self.client.history(
+                **self._history_kwargs(section, cutoff, limit, include_account_filter=True)
+            )
+        except Exception:
+            LOGGER.exception(
+                "Failed to load Plex history",
+                extra={"section": getattr(section, "title", None)},
+            )
+            return []
+
+    def _retry_history_without_account(self, section, cutoff: datetime, limit: int):
+        if not self.filter_history_by_user:
+            return []
+        try:
+            LOGGER.debug(
+                "Retrying Plex history without user filter",
+                extra={"section": getattr(section, "title", None)},
+            )
+            return self.client.history(
+                **self._history_kwargs(section, cutoff, limit, include_account_filter=False)
+            )
+        except Exception:
+            LOGGER.exception(
+                "Failed to load Plex history without user filter",
+                extra={"section": getattr(section, "title", None)},
+            )
+            return []
+
+    def _recent_search_fallback(self, section, limit: int):
+        try:
+            return section.search(sort="lastViewedAt:desc", unwatched=False, maxresults=limit)
+        except Exception:
+            LOGGER.exception(
+                "Failed Plex search fallback",
+                extra={"section": getattr(section, "title", None)},
+            )
+            return []
 
     def _library_sections(self):
         run_id = f"library-refresh-{datetime.now().isoformat()}-{random.randint(1000, 9999)}"
@@ -88,31 +130,13 @@ class PlexService:
             if section.TYPE != "movie":
                 continue
 
-            try:
-                history_entries = self.client.history(**self._history_kwargs(section, cutoff, limit))
-            except Exception:
-                LOGGER.exception(
-                    "Failed to load Plex history for movies", extra={"section": getattr(section, "title", None)}
-                )
-                history_entries = []
+            history_entries = self._load_history_entries(section, cutoff, limit)
 
             if not history_entries:
-                if self.filter_history_by_user:
-                    LOGGER.debug(
-                        "Skipping Plex search fallback for movies because a specific user is configured",
-                        extra={"section": getattr(section, "title", None)},
-                    )
-                    continue
-                try:
-                    history_entries = section.search(
-                        sort="lastViewedAt:desc", unwatched=False, maxresults=limit
-                    )
-                except Exception:
-                    LOGGER.exception(
-                        "Failed Plex search fallback for movies",
-                        extra={"section": getattr(section, "title", None)},
-                    )
-                    history_entries = []
+                history_entries = self._retry_history_without_account(section, cutoff, limit)
+
+            if not history_entries:
+                history_entries = self._recent_search_fallback(section, limit)
 
             for entry in history_entries:
                 movie = getattr(entry, "item", entry)
@@ -151,31 +175,13 @@ class PlexService:
             if section.TYPE != "show":
                 continue
 
-            try:
-                history_entries = self.client.history(**self._history_kwargs(section, cutoff, limit))
-            except Exception:
-                LOGGER.exception(
-                    "Failed to load Plex history for shows", extra={"section": getattr(section, "title", None)}
-                )
-                history_entries = []
+            history_entries = self._load_history_entries(section, cutoff, limit)
 
             if not history_entries:
-                if self.filter_history_by_user:
-                    LOGGER.debug(
-                        "Skipping Plex search fallback for shows because a specific user is configured",
-                        extra={"section": getattr(section, "title", None)},
-                    )
-                    continue
-                try:
-                    history_entries = section.search(
-                        sort="lastViewedAt:desc", unwatched=False, maxresults=limit
-                    )
-                except Exception:
-                    LOGGER.exception(
-                        "Failed Plex search fallback for shows",
-                        extra={"section": getattr(section, "title", None)},
-                    )
-                    history_entries = []
+                history_entries = self._retry_history_without_account(section, cutoff, limit)
+
+            if not history_entries:
+                history_entries = self._recent_search_fallback(section, limit)
 
             for entry in history_entries:
                 episode = getattr(entry, "item", entry)

@@ -6,6 +6,7 @@ from pathlib import Path
 LOG_DIR = Path("/app/logs")
 LOG_FILE = LOG_DIR / "generate.log"
 SCORING_LOG_FILE = LOG_DIR / "scoring.log"
+WEBUI_LOG_FILE = LOG_DIR / "webui.log"
 
 
 _DEF_FORMAT = "%(asctime)s [%(levelname)s] %(name)s - %(message)s"
@@ -54,3 +55,13 @@ def get_scoring_logger() -> logging.Logger:
     """
 
     return _configure_logger("scoring", SCORING_LOG_FILE)
+
+
+def get_webui_logger() -> logging.Logger:
+    """Return a shared logger for all web UI activity.
+
+    Requests, rendering activity, and other web UI interactions are captured in
+    ``/app/logs/webui.log`` so that slow-loading pages can be diagnosed.
+    """
+
+    return _configure_logger("webui", WEBUI_LOG_FILE, console_level=logging.INFO)

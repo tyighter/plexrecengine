@@ -170,7 +170,14 @@ class PlexService:
                 rating_key = entry.get("rating_key") or entry.get("parent_rating_key")
                 if rating_key is None or rating_key in seen_movie_keys:
                     continue
-                movie = self.fetch_item(rating_key)
+                movie = self.fetch_item(
+                    rating_key,
+                    extra={
+                        "source": "recently_watched_movies",
+                        "context": "tautulli_history",
+                        "tautulli_user_id": tautulli_user_id,
+                    },
+                )
                 if not movie or getattr(movie, "type", None) != "movie":
                     continue
                 last_viewed = self._tautulli_timestamp(
@@ -252,7 +259,14 @@ class PlexService:
                 )
                 if watched_at < cutoff:
                     continue
-                item = self.fetch_item(rating_key)
+                item = self.fetch_item(
+                    rating_key,
+                    extra={
+                        "source": "recently_watched_shows",
+                        "context": "tautulli_history",
+                        "tautulli_user_id": tautulli_user_id,
+                    },
+                )
                 if item is None:
                     continue
                 if getattr(item, "type", None) == "episode":
@@ -375,31 +389,37 @@ class PlexService:
 
         return section.createCollection(title, items=items)
 
-    def fetch_item(self, rating_key):
+    def fetch_item(self, rating_key, *, extra: Optional[dict] = None):
         """Fetch a Plex item by rating key or metadata path.
 
         Some Plex API calls expect the full metadata path (``/library/metadata/<id>``)
         while others accept a bare rating key. Normalize the input so collection
         updates can reliably fetch every recommendation, and log failures so we
-        can surface partial updates instead of silently skipping entries.
+        can surface partial updates instead of silently skipping entries. The
+        ``extra`` mapping, when provided, is merged into the log context so
+        callers can tag the source of a missing item.
         """
 
         key = str(rating_key)
         if key.isdigit():
             key = f"/library/metadata/{key}"
 
+        extra_data = {"rating_key": rating_key, "resolved_key": key}
+        if extra:
+            extra_data.update(extra)
+
         try:
             return self.client.fetchItem(key)
         except NotFound:
             LOGGER.error(
                 "Plex item not found",
-                extra={"rating_key": rating_key, "resolved_key": key},
+                extra=extra_data,
             )
             return None
         except Exception:
             LOGGER.exception(
                 "Failed to fetch Plex item by rating key",
-                extra={"rating_key": rating_key, "resolved_key": key},
+                extra=extra_data,
             )
             return None
 

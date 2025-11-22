@@ -51,8 +51,6 @@ async def startup_build_collections():
     if not settings.is_plex_configured or not settings.tmdb_api_key:
         return
 
-    loop = asyncio.get_event_loop()
-
     def build_collections():
         plex = get_plex_service()
         letterboxd = get_letterboxd_client()
@@ -62,7 +60,7 @@ async def startup_build_collections():
 
     # Run the expensive collection refresh in the background so startup
     # doesn't block the first page load after configuration.
-    loop.create_task(loop.run_in_executor(None, build_collections))
+    asyncio.create_task(asyncio.to_thread(build_collections))
 
 
 @app.get("/", response_class=HTMLResponse)

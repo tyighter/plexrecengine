@@ -336,7 +336,7 @@
                 article.appendChild(img);
             }
             const text = document.createElement('p');
-            text.innerHTML = `<strong>${item.title}</strong><br><small>Score: ${item.score?.toFixed?.(2) ?? item.score ?? 'N/A'}${item.letterboxd_rating ? ` · Letterboxd: ${item.letterboxd_rating}` : ''}</small>`;
+            text.innerHTML = `<strong>${item.title}</strong><br><small>Score: ${item.score?.toFixed?.(2) ?? item.score ?? 'N/A'}${item.tmdb_rating ? ` · TMDB: ${item.tmdb_rating}` : ''}</small>`;
             article.appendChild(text);
             const tooltip = document.createElement('div');
             tooltip.className = 'poster-tooltip';
@@ -385,7 +385,7 @@
                     ['writers', 'Writer match'],
                     ['genres', 'Genre match'],
                     ['keywords', 'Keyword match'],
-                    ['letterboxd_rating', 'Letterboxd bonus'],
+                    ['tmdb_rating', 'TMDB bonus'],
                 ];
                 labels.forEach(([key, label]) => {
                     const value = item.score_breakdown[key];

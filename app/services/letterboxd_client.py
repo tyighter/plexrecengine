@@ -27,6 +27,7 @@ class MediaProfile:
     writers: Set[str]
     genres: Set[str]
     keywords: Set[str]
+    tmdb_rating: Optional[float]
     letterboxd_rating: Optional[float]
     letterboxd_vote_count: Optional[int]
 
@@ -41,6 +42,7 @@ class MediaProfile:
             writers=set(),
             genres=set(),
             keywords=set(),
+            tmdb_rating=None,
             letterboxd_rating=None,
             letterboxd_vote_count=None,
         )
@@ -213,6 +215,13 @@ class LetterboxdClient:
 
         rating, votes = self._fetch_letterboxd_score(title, release_year)
 
+        tmdb_rating = None
+        try:
+            vote_average = details.get("vote_average")
+            tmdb_rating = float(vote_average) * 10 if vote_average is not None else None
+        except (TypeError, ValueError):
+            tmdb_rating = None
+
         return MediaProfile(
             title=title,
             tmdb_id=tmdb_id,
@@ -222,6 +231,7 @@ class LetterboxdClient:
             writers=writers,
             genres=genres,
             keywords=keywords,
+            tmdb_rating=tmdb_rating,
             letterboxd_rating=rating,
             letterboxd_vote_count=votes,
         )
@@ -255,14 +265,20 @@ class LetterboxdClient:
         return recommendations
 
 
-def _letterboxd_score(rating: Optional[float]) -> float:
+def _tmdb_score(rating: Optional[float]) -> float:
     if rating is None:
         return 0.0
-    if rating <= 2.0:
+    if rating <= 50:
         return -50.0
-    # Map 2.1 -> 1 and 5.0 -> 30 on a linear scale.
-    slope = (30.0 - 1.0) / (5.0 - 2.1)
-    return 1.0 + slope * (rating - 2.1)
+    if rating <= 65:
+        return 0.0
+    if rating <= 70:
+        return 10.0
+    if rating <= 80:
+        return 20.0
+    if rating <= 90:
+        return 30.0
+    return 50.0
 
 
 def profile_similarity(
@@ -274,7 +290,7 @@ def profile_similarity(
         "writers": 20.0 * len(source.writers & target.writers),
         "genres": 10.0 * len(source.genres & target.genres),
         "keywords": 10.0 * len(source.keywords & target.keywords),
-        "letterboxd_rating": _letterboxd_score(target.letterboxd_rating),
+        "tmdb_rating": _tmdb_score(target.tmdb_rating),
     }
     total = round(sum(breakdown.values()), 2)
     normalized_breakdown = {key: round(value, 2) for key, value in breakdown.items()}

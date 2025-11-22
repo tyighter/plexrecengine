@@ -347,7 +347,7 @@
             <span class="badge">Dashboard</span>
         </div>
         <div class="top-actions">
-            <button id="open-settings" class="primary" role="button">Open Sign-In &amp; API Settings</button>
+            <button id="open-settings" class="primary" role="button">Settings</button>
         </div>
     </div>
 </div>
@@ -499,6 +499,7 @@
             aria-label="Recommendation configuration"
             data-current-pool="{{ settings.related_pool_limit }}"
             data-allow-watched="{{ 'true' if settings.allow_watched_recommendations else 'false' }}"
+            data-collection-order="{{ settings.collection_order }}"
         >
             <p><strong>Recommendation pool</strong></p>
             <p class="muted">Choose how many related titles to fetch before scoring. Set to 0 for unlimited.</p>
@@ -518,6 +519,17 @@
                     <span>Allow watched items to appear in recommendations</span>
                 </label>
             </div>
+            <p><strong>Collection ordering</strong></p>
+            <p class="muted">Choose how to order items when creating the Plex collection.</p>
+            <label for="collection-order">Order recommended items by
+                <select id="collection-order" name="collection-order">
+                    <option value="random">Random</option>
+                    <option value="highest_score">Highest score first</option>
+                    <option value="alphabetical">Alphabetical</option>
+                    <option value="oldest_first">Oldest first</option>
+                    <option value="newest_first">Newest first</option>
+                </select>
+            </label>
             <footer>
                 <button id="save-recommendation-settings" role="button">Save Recommendation Settings</button>
                 <p id="recommendation-settings-status" class="muted"></p>
@@ -566,10 +578,32 @@
     const recommendationConfigSection = document.getElementById('recommendation-config');
     const relatedPoolInput = document.getElementById('related-pool-limit');
     const allowWatchedInput = document.getElementById('allow-watched');
+    const collectionOrderSelect = document.getElementById('collection-order');
     const recommendationSettingsStatus = document.getElementById('recommendation-settings-status');
-    const currentRelatedPool = recommendationConfigSection?.dataset.currentPool || '';
-    const currentAllowWatched =
-        (recommendationConfigSection?.dataset.allowWatched || 'true') === 'true';
+
+    function syncRecommendationSettingsForm() {
+        const poolValue =
+            recommendationConfigSection?.dataset.currentPool ??
+            relatedPoolInput?.value ??
+            '20';
+        if (relatedPoolInput) {
+            relatedPoolInput.value = poolValue;
+        }
+
+        const allowWatchedValue =
+            (recommendationConfigSection?.dataset.allowWatched ?? 'true') === 'true';
+        if (allowWatchedInput) {
+            allowWatchedInput.checked = allowWatchedValue;
+        }
+
+        const collectionOrderValue =
+            recommendationConfigSection?.dataset.collectionOrder ||
+            collectionOrderSelect?.value ||
+            'highest_score';
+        if (collectionOrderSelect) {
+            collectionOrderSelect.value = collectionOrderValue;
+        }
+    }
 
     const recommendationStatus = document.getElementById('recommendation-status');
     const generateButton = document.getElementById('generate-recommendations');
@@ -608,9 +642,7 @@
         `Tautulli ${isTautulliConfigured ? 'Connected' : 'Not connected'}`,
     );
 
-    if (allowWatchedInput) {
-        allowWatchedInput.checked = currentAllowWatched;
-    }
+    syncRecommendationSettingsForm();
 
     function renderCards(container, items) {
         container.innerHTML = '';
@@ -1016,12 +1048,7 @@
         if (tautulliApiKeyInput) {
             tautulliApiKeyInput.value = '';
         }
-        if (relatedPoolInput) {
-            relatedPoolInput.value = currentRelatedPool || relatedPoolInput.value || '20';
-        }
-        if (allowWatchedInput) {
-            allowWatchedInput.checked = currentAllowWatched;
-        }
+        syncRecommendationSettingsForm();
         settingsDialog.showModal();
     });
 
@@ -1036,6 +1063,12 @@
             recommendationSettingsStatus.textContent = 'Enter a non-negative number (0 for unlimited).';
             return;
         }
+        const selectedOrder = collectionOrderSelect?.value || 'highest_score';
+        const allowedOrders = new Set(['random', 'highest_score', 'alphabetical', 'oldest_first', 'newest_first']);
+        if (!allowedOrders.has(selectedOrder)) {
+            recommendationSettingsStatus.textContent = 'Choose a supported collection order option.';
+            return;
+        }
         recommendationSettingsStatus.textContent = 'Saving recommendation settings...';
         try {
             const response = await fetch('/api/recommendations/config', {
@@ -1046,6 +1079,7 @@
                 body: JSON.stringify({
                     relatedPoolLimit: parsedLimit,
                     allowWatched: allowWatchedInput?.checked ?? true,
+                    collectionOrder: selectedOrder,
                 }),
             });
             if (!response.ok) {
@@ -1055,6 +1089,8 @@
             }
             recommendationConfigSection.dataset.currentPool = String(parsedLimit);
             recommendationConfigSection.dataset.allowWatched = allowWatchedInput?.checked ? 'true' : 'false';
+            recommendationConfigSection.dataset.collectionOrder = selectedOrder;
+            syncRecommendationSettingsForm();
             recommendationSettingsStatus.textContent = 'Saved recommendation settings. Reload to apply changes.';
         } catch (err) {
             recommendationSettingsStatus.textContent = 'Failed to save recommendation settings.';

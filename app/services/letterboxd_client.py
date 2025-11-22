@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 import httpx
 from bs4 import BeautifulSoup
@@ -17,7 +17,8 @@ class MediaProfile:
     tmdb_id: int
     media_type: str
     cast: Set[str]
-    crew: Set[str]
+    directors: Set[str]
+    writers: Set[str]
     genres: Set[str]
     keywords: Set[str]
     letterboxd_rating: Optional[float]
@@ -30,7 +31,8 @@ class MediaProfile:
             tmdb_id=tmdb_id,
             media_type=media_type,
             cast=set(),
-            crew=set(),
+            directors=set(),
+            writers=set(),
             genres=set(),
             keywords=set(),
             letterboxd_rating=None,
@@ -93,7 +95,16 @@ class LetterboxdClient:
                 break
 
         cast = {member.get("name", "") for member in credits.get("cast", [])[:10] if member.get("name")}
-        crew = {member.get("name", "") for member in credits.get("crew", []) if member.get("department") in {"Directing", "Writing"}}
+        directors = {
+            member.get("name", "")
+            for member in credits.get("crew", [])
+            if member.get("job", "").lower() == "director" and member.get("name")
+        }
+        writers = {
+            member.get("name", "")
+            for member in credits.get("crew", [])
+            if member.get("job", "").lower() == "writer" and member.get("name")
+        }
         genres = {g.get("name", "") for g in details.get("genres", []) if g.get("name")}
 
         keyword_entries = keywords_resp.get("keywords") or keywords_resp.get("results") or []
@@ -106,7 +117,8 @@ class LetterboxdClient:
             tmdb_id=tmdb_id,
             media_type=media_type,
             cast=cast,
-            crew=crew,
+            directors=directors,
+            writers=writers,
             genres=genres,
             keywords=keywords,
             letterboxd_rating=rating,
@@ -142,30 +154,25 @@ class LetterboxdClient:
         return recommendations
 
 
+def _letterboxd_score(rating: Optional[float]) -> float:
+    if rating is None:
+        return 0.0
+    if rating <= 2.0:
+        return -50.0
+    # Map 2.1 -> 1 and 5.0 -> 30 on a linear scale.
+    slope = (30.0 - 1.0) / (5.0 - 2.1)
+    return 1.0 + slope * (rating - 2.1)
+
+
 def profile_similarity(source: MediaProfile, target: MediaProfile) -> float:
-    def jaccard(a: Set[str], b: Set[str]) -> float:
-        if not a or not b:
-            return 0.0
-        intersection = len(a & b)
-        union = len(a | b)
-        return intersection / union if union else 0.0
-
-    weights: Dict[str, float] = {
-        "cast": 0.3,
-        "crew": 0.2,
-        "genres": 0.2,
-        "keywords": 0.1,
-        "rating": 0.2,
-    }
-
     score = 0.0
-    score += weights["cast"] * jaccard(source.cast, target.cast)
-    score += weights["crew"] * jaccard(source.crew, target.crew)
-    score += weights["genres"] * jaccard(source.genres, target.genres)
-    score += weights["keywords"] * jaccard(source.keywords, target.keywords)
-    if target.letterboxd_rating:
-        score += weights["rating"] * (target.letterboxd_rating / 5.0)
-    return round(score, 4)
+    score += 10.0 * len(source.cast & target.cast)
+    score += 30.0 * len(source.directors & target.directors)
+    score += 20.0 * len(source.writers & target.writers)
+    score += 10.0 * len(source.genres & target.genres)
+    score += 10.0 * len(source.keywords & target.keywords)
+    score += _letterboxd_score(target.letterboxd_rating)
+    return round(score, 2)
 
 
 def get_letterboxd_client() -> LetterboxdClient:

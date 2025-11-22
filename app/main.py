@@ -39,9 +39,10 @@ class TmdbKeyRequest(BaseModel):
     apiKey: str
 
 
-class LibrarySelection(BaseModel):
+class PlexPreferences(BaseModel):
     movieLibrary: str
     showLibrary: str
+    plexUserId: str | None = None
 
 
 def _serialize_recent(item, poster_url):
@@ -168,10 +169,12 @@ async def available_libraries():
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/api/plex/libraries")
-async def update_libraries(payload: LibrarySelection):
+@app.post("/api/plex/preferences")
+async def update_preferences(payload: PlexPreferences):
     try:
-        return save_library_preferences(payload.movieLibrary, payload.showLibrary)
+        return save_library_preferences(
+            payload.movieLibrary, payload.showLibrary, payload.plexUserId
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

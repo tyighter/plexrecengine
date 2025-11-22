@@ -23,13 +23,20 @@ def _load_saved_config():
 
     data = {**yaml_config, **json_config}
 
-    for key, value in data.items():
+    def _set_env(name: str, value: object):
         if value is None:
-            continue
+            return
         if isinstance(value, list):
-            os.environ.setdefault(key, ",".join(map(str, value)))
+            env_value = ",".join(map(str, value))
         else:
-            os.environ.setdefault(key, str(value))
+            env_value = str(value)
+        os.environ.setdefault(name, env_value)
+
+    for key, value in data.items():
+        _set_env(key, value)
+        upper_key = key.upper()
+        if upper_key != key:
+            _set_env(upper_key, value)
 
 
 def save_config(values: dict[str, object]):
@@ -54,6 +61,7 @@ class Settings(BaseSettings):
     plex_library_names: List[str] | None = None
     plex_movie_library: Optional[str] = None
     plex_show_library: Optional[str] = None
+    plex_user_id: str | None = None
     tmdb_api_key: str | None = None
     letterboxd_session: str | None = None
     model_config = SettingsConfigDict(

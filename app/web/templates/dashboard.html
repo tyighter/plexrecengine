@@ -105,38 +105,14 @@
 
     <section>
         <h2>Recently Watched Movies</h2>
-        <p class="muted">Showing everything you've watched in the last 30 days from your selected libraries.</p>
-        <div id="recent-movies" class="poster-grid">
-            {% for movie in recent_movies %}
-            <article class="poster-card">
-                {% if movie.poster %}
-                <img src="{{ movie.poster }}" alt="{{ movie.title }} poster" />
-                {% endif %}
-                <p><strong>{{ movie.title }}</strong><br><small>{% if movie.year %}{{ movie.year }} · {% endif %}{{ movie.library or 'Movies' }}</small></p>
-            </article>
-            {% endfor %}
-            {% if not recent_movies %}
-            <p class="muted">Watch something in Plex to see it appear here.</p>
-            {% endif %}
-        </div>
+        <p id="recent-movies-status" class="muted">Loading recent movies...</p>
+        <div id="recent-movies" class="poster-grid"></div>
     </section>
 
     <section>
         <h2>Recently Watched Shows</h2>
-        <p class="muted">One entry per show from the last 30 days, based on your last watched episodes.</p>
-        <div id="recent-shows" class="poster-grid">
-            {% for show in recent_shows %}
-            <article class="poster-card">
-                {% if show.poster %}
-                <img src="{{ show.poster }}" alt="{{ show.title }} poster" />
-                {% endif %}
-                <p><strong>{{ show.title }}</strong><br><small>{% if show.year %}{{ show.year }} · {% endif %}{{ show.library or 'TV Shows' }}</small></p>
-            </article>
-            {% endfor %}
-            {% if not recent_shows %}
-            <p class="muted">Watch something in Plex to see it appear here.</p>
-            {% endif %}
-        </div>
+        <p id="recent-shows-status" class="muted">Loading recent shows...</p>
+        <div id="recent-shows" class="poster-grid"></div>
     </section>
 
     <section>
@@ -212,6 +188,10 @@
     const generateButton = document.getElementById('generate-recommendations');
     const recommendedMoviesEl = document.getElementById('recommended-movies');
     const recommendedShowsEl = document.getElementById('recommended-shows');
+    const recentMoviesStatus = document.getElementById('recent-movies-status');
+    const recentShowsStatus = document.getElementById('recent-shows-status');
+    const recentMoviesEl = document.getElementById('recent-movies');
+    const recentShowsEl = document.getElementById('recent-shows');
     const initialMovies = {{ movies | tojson }};
     const initialShows = {{ shows | tojson }};
 
@@ -253,6 +233,29 @@
         });
     }
 
+    function renderRecent(container, statusEl, items, emptyMessage) {
+        container.innerHTML = '';
+        if (!items || !items.length) {
+            statusEl.textContent = emptyMessage;
+            return;
+        }
+        statusEl.textContent = '';
+        items.forEach((item) => {
+            const article = document.createElement('article');
+            article.className = 'poster-card';
+            if (item.poster) {
+                const img = document.createElement('img');
+                img.src = item.poster;
+                img.alt = `${item.title} poster`;
+                article.appendChild(img);
+            }
+            const text = document.createElement('p');
+            text.innerHTML = `<strong>${item.title}</strong><br><small>${item.year ? `${item.year} · ` : ''}${item.library || 'Plex'}</small>`;
+            article.appendChild(text);
+            container.appendChild(article);
+        });
+    }
+
     async function buildRecommendations() {
         recommendationStatus.textContent = 'Building recommendations...';
         generateButton.disabled = true;
@@ -278,6 +281,28 @@
 
     renderCards(recommendedMoviesEl, initialMovies);
     renderCards(recommendedShowsEl, initialShows);
+
+    async function loadRecentActivity() {
+        if (!isPlexConfigured) {
+            recentMoviesStatus.textContent = 'Connect Plex to see recent activity.';
+            recentShowsStatus.textContent = 'Connect Plex to see recent activity.';
+            return;
+        }
+        recentMoviesStatus.textContent = 'Loading recent movies...';
+        recentShowsStatus.textContent = 'Loading recent shows...';
+        try {
+            const response = await fetch('/api/recent');
+            if (!response.ok) {
+                throw new Error('Recent activity request failed');
+            }
+            const data = await response.json();
+            renderRecent(recentMoviesEl, recentMoviesStatus, data.recent_movies, 'Watch something in Plex to see it appear here.');
+            renderRecent(recentShowsEl, recentShowsStatus, data.recent_shows, 'Watch something in Plex to see it appear here.');
+        } catch (err) {
+            recentMoviesStatus.textContent = 'Unable to load recent activity right now.';
+            recentShowsStatus.textContent = 'Unable to load recent activity right now.';
+        }
+    }
 
     function populateSelect(selectEl, options, currentValue) {
         selectEl.innerHTML = '';
@@ -427,6 +452,7 @@
     });
 
     fetchAvailableLibraries();
+    loadRecentActivity();
 </script>
 </body>
 </html>

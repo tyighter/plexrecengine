@@ -71,17 +71,6 @@ async def dashboard(request: Request):
     shows = []
     recent_movies = []
     recent_shows = []
-
-    if settings.is_plex_configured:
-        plex = get_plex_service()
-        recent_movies = [
-            _serialize_recent(item, plex.poster_url)
-            for item in plex.recently_watched_movies(days=30)
-        ]
-        recent_shows = [
-            _serialize_recent(item, plex.poster_url)
-            for item in plex.recently_watched_shows(days=30)
-        ]
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -93,6 +82,29 @@ async def dashboard(request: Request):
             "recent_shows": recent_shows,
         },
     )
+
+
+@app.get("/api/recent")
+async def recent_activity():
+    """Return recent watch activity without blocking the main thread."""
+
+    if not settings.is_plex_configured:
+        return {"recent_movies": [], "recent_shows": []}
+
+    def fetch_recent():
+        plex = get_plex_service()
+        return {
+            "recent_movies": [
+                _serialize_recent(item, plex.poster_url)
+                for item in plex.recently_watched_movies(days=30)
+            ],
+            "recent_shows": [
+                _serialize_recent(item, plex.poster_url)
+                for item in plex.recently_watched_shows(days=30)
+            ],
+        }
+
+    return await asyncio.to_thread(fetch_recent)
 
 
 @app.post("/api/plex/login/start")

@@ -230,6 +230,27 @@ def _schedule_recommendation_rebuild(force: bool = False) -> bool:
     return True
 
 
+async def _run_recommendation_rebuild(force: bool = False) -> dict[str, object]:
+    """Run the recommendation rebuild immediately, waiting on any in-flight run."""
+
+    global RECOMMENDATION_REBUILD_TASK
+
+    if _is_rebuild_running():
+        await RECOMMENDATION_REBUILD_TASK  # type: ignore[arg-type]
+        cached = await _get_cached_recommendations()
+        if cached:
+            return cached
+
+    async def _run_and_record():
+        try:
+            return await _generate_recommendations(force=force)
+        finally:
+            RECOMMENDATION_REBUILD_TASK = None
+
+    RECOMMENDATION_REBUILD_TASK = asyncio.create_task(_run_and_record())
+    return await RECOMMENDATION_REBUILD_TASK
+
+
 async def _watch_recent_activity():
     while True:
         try:
@@ -502,28 +523,21 @@ async def build_recommendations():
         LOGGER.warning("TMDB API key missing; rejecting recommendation request")
         raise HTTPException(status_code=400, detail="TMDB API key is missing")
 
-    LOGGER.info("Scheduling background recommendation rebuild")
-    _schedule_recommendation_rebuild(force=True)
+    LOGGER.info("Rebuilding recommendations immediately")
+    try:
+        recommendations = await _run_recommendation_rebuild(force=True)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.exception("Failed to rebuild recommendations synchronously")
+        raise HTTPException(status_code=500, detail="Failed to rebuild recommendations") from exc
 
-    cached_recommendations = await _get_cached_recommendations()
-    if cached_recommendations:
-        LOGGER.info(
-            "Returning cached recommendations while rebuild runs",
-            extra={
-                "movies": len(cached_recommendations.get("movies", [])),
-                "shows": len(cached_recommendations.get("shows", [])),
-                "status": "rebuilding" if _is_rebuild_running() else "ready",
-            },
-        )
-        status_code = 202 if _is_rebuild_running() else 200
-        return JSONResponse(cached_recommendations, status_code=status_code)
-
-    if _is_rebuild_running():
-        LOGGER.info("No cached recommendations available; rebuild pending")
-        return JSONResponse({"status": "pending"}, status_code=202)
-
-    LOGGER.error("Failed to schedule recommendation rebuild")
-    raise HTTPException(status_code=500, detail="Failed to schedule recommendations rebuild")
+    LOGGER.info(
+        "Returning freshly rebuilt recommendations",
+        extra={
+            "movies": len(recommendations.get("movies", [])),
+            "shows": len(recommendations.get("shows", [])),
+        },
+    )
+    return JSONResponse(recommendations, status_code=200)
 
 
 @app.get("/api/recommendations")

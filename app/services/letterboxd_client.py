@@ -252,20 +252,50 @@ class LetterboxdClient:
     def search_related(
         self, profile: MediaProfile, limit: int | None = 15
     ) -> List[MediaProfile]:
-        similar = self.client.get(f"/{profile.media_type}/{profile.tmdb_id}/similar").json().get("results", [])
-        recommendations: List[MediaProfile] = []
         max_results = limit if limit and limit > 0 else None
-        candidates = similar if max_results is None else similar[: max_results * 2]
-        for item in candidates:
-            tmdb_id = item.get("id")
-            if tmdb_id is None:
-                continue
-            try:
-                recommendations.append(self.fetch_profile(tmdb_id, profile.media_type))
-            except Exception:
-                continue
-            if max_results and len(recommendations) >= max_results:
+        recommendations: List[MediaProfile] = []
+        seen_ids: set[int] = set()
+
+        def _fetch_candidates(path: str, remaining: Optional[int]) -> List[int]:
+            results: list[int] = []
+            page = 1
+            while True:
+                params = {"page": page}
+                response = self.client.get(path, params=params).json()
+                entries = response.get("results", [])
+                if not entries:
+                    break
+                for entry in entries:
+                    tmdb_id = entry.get("id")
+                    if tmdb_id is None or tmdb_id in seen_ids:
+                        continue
+                    seen_ids.add(tmdb_id)
+                    results.append(tmdb_id)
+                    if remaining is not None and len(results) >= remaining:
+                        break
+                total_pages = response.get("total_pages") or 1
+                if (remaining is not None and len(results) >= remaining) or page >= total_pages:
+                    break
+                page += 1
+            return results
+
+        sources = [
+            f"/{profile.media_type}/{profile.tmdb_id}/similar",
+            f"/{profile.media_type}/{profile.tmdb_id}/recommendations",
+        ]
+
+        for source in sources:
+            remaining = None if max_results is None else max_results - len(recommendations)
+            if remaining == 0:
                 break
+            candidate_ids = _fetch_candidates(source, remaining)
+            for tmdb_id in candidate_ids:
+                try:
+                    recommendations.append(self.fetch_profile(tmdb_id, profile.media_type))
+                except Exception:
+                    continue
+                if max_results and len(recommendations) >= max_results:
+                    break
         return recommendations
 
 

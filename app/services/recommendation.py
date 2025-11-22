@@ -104,7 +104,15 @@ class RecommendationEngine:
     def _refresh_collection(self, collection_name: str, recs: List[Recommendation]):
         items = []
         for rec in recs:
-            item = self.plex.fetch_item(rec.rating_key)
+            item = self.plex.fetch_item(
+                rec.rating_key,
+                extra={
+                    "source": "recommendation_collection",
+                    "collection": collection_name,
+                    "title": rec.title,
+                    "score": rec.score,
+                },
+            )
             if item:
                 items.append(item)
         try:

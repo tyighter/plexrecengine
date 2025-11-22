@@ -3,124 +3,346 @@
 <head>
     <meta charset="UTF-8">
     <title>Plex Recommendations</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <style>
-        .poster-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        :root {
+            color-scheme: light;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #e7eaed;
+            color: #202124;
+        }
+
+        .topbar {
+            background: linear-gradient(#4d90fe, #357ae8);
+            color: #fff;
+            border-bottom: 1px solid #2a65d6;
+            box-shadow: 0 1px 0 #2a65d6, 0 2px 4px rgba(0, 0, 0, 0.15);
+        }
+
+        .topbar-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             gap: 1rem;
         }
-        .poster-card img {
-            width: 100%;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-size: 1.1rem;
+            letter-spacing: 0.01em;
+            font-weight: 700;
         }
-        .poster-card {
-            text-align: center;
-            position: relative;
+
+        .brand .badge {
+            background: rgba(255, 255, 255, 0.22);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            padding: 4px 8px;
+            border-radius: 2px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
         }
-        header {
-            margin-bottom: 2rem;
+
+        .top-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
         }
-        dialog {
-            max-width: 26rem;
+
+        main {
+            max-width: 1200px;
+            margin: 18px auto 32px;
+            padding: 0 24px;
         }
+
+        h1, h2, h3 {
+            font-weight: 600;
+            margin: 0 0 6px;
+            color: #202124;
+        }
+
+        h2 {
+            font-size: 1.2rem;
+        }
+
+        p {
+            margin: 0 0 10px;
+            line-height: 1.45;
+        }
+
         .muted {
-            color: #6b7280;
+            color: #5f6368;
         }
-        .grid-two-column {
-            display: grid;
-            gap: 0.75rem 1rem;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+
+        .panel {
+            background: #fff;
+            border: 1px solid #dcdcdc;
+            border-radius: 3px;
+            box-shadow: 0 1px 0 #fff inset, 0 1px 3px rgba(0, 0, 0, 0.08);
+            padding: 16px 18px;
+            margin-bottom: 16px;
         }
+
         .header-actions {
             display: flex;
             flex-wrap: wrap;
             gap: 0.75rem;
             align-items: center;
             justify-content: space-between;
+            margin-bottom: 6px;
         }
-        .poster-tooltip {
-            position: absolute;
-            left: 50%;
-            bottom: 100%;
-            max-width: 320px;
-            min-width: 260px;
-            padding: 0.5rem 0.9rem;
-            background: rgba(17, 24, 39, 0.95);
-            color: #e5e7eb;
-            border-radius: 0.75rem;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-            opacity: 0;
-            visibility: hidden;
-            transform: translate(-50%, 8px);
-            transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
-            text-align: left;
-            z-index: 10;
+
+        .subhead {
+            border-bottom: 1px solid #e5e5e5;
+            padding-bottom: 10px;
+            margin-bottom: 12px;
         }
-        .poster-tooltip p {
-            margin: 0.15rem 0;
-        }
-        .poster-tooltip .tooltip-heading {
-            margin-bottom: 0.3rem;
-        }
-        .poster-tooltip .tooltip-summary {
-            margin-bottom: 0.35rem;
-            line-height: 1.4;
-        }
-        .score-breakdown {
-            margin: 0.35rem 0 0;
-            padding-left: 1.25rem;
-        }
-        .score-breakdown li {
-            margin: 0.15rem 0;
-        }
-        .poster-card:hover .poster-tooltip,
-        .poster-card:focus-within .poster-tooltip {
-            opacity: 1;
-            visibility: visible;
-            transform: translateY(0);
-        }
+
         .connection-badges {
             display: flex;
             flex-wrap: wrap;
             gap: 0.5rem;
             align-items: center;
-            margin-top: 0.5rem;
+            margin-top: 0.35rem;
         }
+
         .status-pill {
             display: inline-flex;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0.35rem 0.7rem;
-            border-radius: 999px;
-            background: #f3f4f6;
-            color: #1f2937;
-            border: 1px solid #e5e7eb;
+            gap: 0.45rem;
+            padding: 0.25rem 0.55rem;
+            border-radius: 2px;
+            border: 1px solid #d0d7de;
+            background: linear-gradient(#f5f5f5, #e6e6e6);
+            color: #202124;
             font-weight: 600;
+            box-shadow: 0 1px 0 #fff inset, 0 1px 2px rgba(0, 0, 0, 0.08);
         }
+
         .status-dot {
             width: 10px;
             height: 10px;
             border-radius: 50%;
             display: inline-block;
             background: #d1d5db;
-            box-shadow: 0 0 0 2px rgba(0,0,0,0.04);
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
         }
+
         .status-pill.connected .status-dot {
-            background: #16a34a;
+            background: #2baf2b;
         }
+
         .status-pill.pending .status-dot {
-            background: #f59e0b;
+            background: #f5b400;
         }
+
         .status-pill.disconnected .status-dot {
-            background: #ef4444;
+            background: #dd4b39;
+        }
+
+        button,
+        .button {
+            appearance: none;
+            border: 1px solid #dcdcdc;
+            background: linear-gradient(#f5f5f5, #f1f1f1);
+            color: #202124;
+            border-radius: 2px;
+            padding: 7px 14px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 1px 0 #fff inset, 0 1px 2px rgba(0, 0, 0, 0.15);
+            text-decoration: none;
+        }
+
+        button:hover,
+        .button:hover {
+            background: linear-gradient(#fefefe, #f3f3f3);
+        }
+
+        button:disabled,
+        .button:disabled {
+            background: #f3f3f3;
+            color: #a0a0a0;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .primary {
+            background: linear-gradient(#4d90fe, #357ae8);
+            border-color: #2f5bb7;
+            color: #fff;
+            text-shadow: 0 1px 0 rgba(0, 0, 0, 0.15);
+        }
+
+        .primary:hover {
+            background: linear-gradient(#5ba0ff, #357ae8);
+        }
+
+        .poster-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 1rem;
+            margin-top: 12px;
+        }
+
+        .poster-card {
+            text-align: center;
+            position: relative;
+            background: #fafafa;
+            border: 1px solid #e5e5e5;
+            border-radius: 2px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+            padding: 6px;
+        }
+
+        .poster-card img {
+            width: 100%;
+            border-radius: 2px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .poster-card p {
+            margin: 8px 0 6px;
+            font-size: 0.9rem;
+        }
+
+        .poster-tooltip {
+            position: absolute;
+            left: 50%;
+            bottom: 100%;
+            max-width: 320px;
+            min-width: 260px;
+            padding: 0.6rem 0.9rem;
+            background: #fffef7;
+            color: #202124;
+            border-radius: 2px;
+            border: 1px solid #dcdcdc;
+            box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2);
+            opacity: 0;
+            visibility: hidden;
+            transform: translate(-50%, 10px);
+            transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+            text-align: left;
+            z-index: 10;
+        }
+
+        .poster-tooltip p {
+            margin: 0.15rem 0;
+            font-size: 0.9rem;
+        }
+
+        .poster-tooltip .tooltip-heading {
+            margin-bottom: 0.3rem;
+        }
+
+        .poster-tooltip .tooltip-summary {
+            margin-bottom: 0.35rem;
+            line-height: 1.4;
+        }
+
+        .score-breakdown {
+            margin: 0.35rem 0 0;
+            padding-left: 1.25rem;
+        }
+
+        .score-breakdown li {
+            margin: 0.15rem 0;
+        }
+
+        .poster-card:hover .poster-tooltip,
+        .poster-card:focus-within .poster-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translate(-50%, 0);
+        }
+
+        .grid-two-column {
+            display: grid;
+            gap: 0.75rem 1rem;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+
+        label {
+            font-weight: 600;
+            color: #202124;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        input,
+        select,
+        textarea {
+            border: 1px solid #d9d9d9;
+            border-radius: 2px;
+            padding: 8px 10px;
+            font-size: 0.95rem;
+            font-family: inherit;
+            background: #fff;
+            box-shadow: 0 1px 0 #f8f8f8 inset;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: 1px solid #4d90fe;
+            border-color: #4d90fe;
+            box-shadow: 0 0 3px rgba(77, 144, 254, 0.4);
+        }
+
+        dialog {
+            max-width: 32rem;
+            border: 1px solid #dcdcdc;
+            border-radius: 3px;
+            box-shadow: 0 4px 22px rgba(0, 0, 0, 0.35);
+            padding: 0;
+        }
+
+        dialog article {
+            padding: 18px 18px 12px;
+        }
+
+        dialog::backdrop {
+            background: rgba(0, 0, 0, 0.35);
+        }
+
+        footer {
+            margin-top: 10px;
+        }
+
+        small {
+            color: #5f6368;
         }
     </style>
 </head>
 <body>
-<main class="container">
-    <header>
+<div class="topbar">
+    <div class="topbar-inner">
+        <div class="brand">
+            <span>Plex Recommendations</span>
+            <span class="badge">Dashboard</span>
+        </div>
+        <div class="top-actions">
+            <button id="open-settings" class="primary" role="button">Open Sign-In &amp; API Settings</button>
+        </div>
+    </div>
+</div>
+<main>
+    <section class="panel subhead">
         <div class="header-actions">
             <div>
                 <h1>Plex Recommendations</h1>
@@ -145,37 +367,51 @@
                 {% endif %}
             </div>
             <div>
-                <button id="open-settings" role="button">Open Sign-In &amp; API Settings</button>
+                <p class="muted" style="margin: 0;">Classic Google-style interface</p>
             </div>
         </div>
-    </header>
+    </section>
 
-    <section>
-        <h2>Recently Watched Movies</h2>
-        <p id="recent-movies-status" class="muted">Loading recent movies...</p>
+    <section class="panel">
+        <div class="header-actions">
+            <div>
+                <h2>Recently Watched Movies</h2>
+                <p id="recent-movies-status" class="muted">Loading recent movies...</p>
+            </div>
+        </div>
         <div id="recent-movies" class="poster-grid"></div>
     </section>
 
-    <section>
-        <h2>Recently Watched Shows</h2>
-        <p id="recent-shows-status" class="muted">Loading recent shows...</p>
+    <section class="panel">
+        <div class="header-actions">
+            <div>
+                <h2>Recently Watched Shows</h2>
+                <p id="recent-shows-status" class="muted">Loading recent shows...</p>
+            </div>
+        </div>
         <div id="recent-shows" class="poster-grid"></div>
     </section>
 
-    <section>
-        <header class="grid-two-column" style="align-items: center;">
+    <section class="panel">
+        <header class="header-actions">
             <div>
                 <h2>Recommendations</h2>
                 <p id="recommendation-status" class="muted">Generate fresh recommendations when you're ready.</p>
             </div>
-            <div style="text-align: right;">
-                <button id="generate-recommendations" role="button" {% if not settings.is_plex_configured or not settings.tmdb_api_key %}disabled{% endif %}>Generate Recommendations</button>
+            <div>
+                <button id="generate-recommendations" class="primary" role="button" {% if not settings.is_plex_configured or not settings.tmdb_api_key %}disabled{% endif %}>Generate Recommendations</button>
             </div>
         </header>
-        <h3>Movies</h3>
-        <div id="recommended-movies" class="poster-grid"></div>
-        <h3>Shows</h3>
-        <div id="recommended-shows" class="poster-grid"></div>
+        <div class="grid-two-column">
+            <div>
+                <h3>Movies</h3>
+                <div id="recommended-movies" class="poster-grid"></div>
+            </div>
+            <div>
+                <h3>Shows</h3>
+                <div id="recommended-shows" class="poster-grid"></div>
+            </div>
+        </div>
     </section>
 </main>
 <dialog id="settings-dialog">

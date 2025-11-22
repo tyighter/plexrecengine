@@ -284,6 +284,16 @@
             gap: 4px;
         }
 
+        .checkbox-row {
+            flex-direction: row;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-row span {
+            font-weight: 400;
+        }
+
         input,
         select,
         textarea {
@@ -488,6 +498,7 @@
             id="recommendation-config"
             aria-label="Recommendation configuration"
             data-current-pool="{{ settings.related_pool_limit }}"
+            data-allow-watched="{{ 'true' if settings.allow_watched_recommendations else 'false' }}"
         >
             <p><strong>Recommendation pool</strong></p>
             <p class="muted">Choose how many related titles to fetch before scoring. Set to 0 for unlimited.</p>
@@ -501,6 +512,10 @@
                         step="1"
                         value="{{ settings.related_pool_limit }}"
                     />
+                </label>
+                <label for="allow-watched" class="checkbox-row">
+                    <input id="allow-watched" name="allow-watched" type="checkbox" />
+                    <span>Allow watched items to appear in recommendations</span>
                 </label>
             </div>
             <footer>
@@ -550,8 +565,11 @@
     const tmdbConfigured = "{{ 'true' if settings.tmdb_api_key else 'false' }}" === "true";
     const recommendationConfigSection = document.getElementById('recommendation-config');
     const relatedPoolInput = document.getElementById('related-pool-limit');
+    const allowWatchedInput = document.getElementById('allow-watched');
     const recommendationSettingsStatus = document.getElementById('recommendation-settings-status');
     const currentRelatedPool = recommendationConfigSection?.dataset.currentPool || '';
+    const currentAllowWatched =
+        (recommendationConfigSection?.dataset.allowWatched || 'true') === 'true';
 
     const recommendationStatus = document.getElementById('recommendation-status');
     const generateButton = document.getElementById('generate-recommendations');
@@ -589,6 +607,10 @@
         isTautulliConfigured ? 'connected' : 'disconnected',
         `Tautulli ${isTautulliConfigured ? 'Connected' : 'Not connected'}`,
     );
+
+    if (allowWatchedInput) {
+        allowWatchedInput.checked = currentAllowWatched;
+    }
 
     function renderCards(container, items) {
         container.innerHTML = '';
@@ -997,6 +1019,9 @@
         if (relatedPoolInput) {
             relatedPoolInput.value = currentRelatedPool || relatedPoolInput.value || '20';
         }
+        if (allowWatchedInput) {
+            allowWatchedInput.checked = currentAllowWatched;
+        }
         settingsDialog.showModal();
     });
 
@@ -1018,7 +1043,10 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ relatedPoolLimit: parsedLimit }),
+                body: JSON.stringify({
+                    relatedPoolLimit: parsedLimit,
+                    allowWatched: allowWatchedInput?.checked ?? true,
+                }),
             });
             if (!response.ok) {
                 const error = await response.json();
@@ -1026,6 +1054,7 @@
                 return;
             }
             recommendationConfigSection.dataset.currentPool = String(parsedLimit);
+            recommendationConfigSection.dataset.allowWatched = allowWatchedInput?.checked ? 'true' : 'false';
             recommendationSettingsStatus.textContent = 'Saved recommendation settings. Reload to apply changes.';
         } catch (err) {
             recommendationSettingsStatus.textContent = 'Failed to save recommendation settings.';

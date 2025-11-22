@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 
+from app.config import settings
 from app.services.generate_logging import get_generate_logger, get_scoring_logger
 from app.services.letterboxd_client import LetterboxdClient, MediaProfile, profile_similarity
 from app.services.plex_service import PlexService
@@ -115,6 +116,16 @@ class RecommendationEngine:
                 continue
 
             plex_item = plex_matches[0]
+            if not settings.allow_watched_recommendations:
+                view_count = getattr(plex_item, "viewCount", 0) or 0
+                is_watched = bool(getattr(plex_item, "isWatched", False))
+                if is_watched or view_count > 0:
+                    SCORING_LOGGER.info(
+                        "Skipping %s — already watched in Plex (viewCount=%s)",
+                        profile.title,
+                        view_count,
+                    )
+                    continue
             overlap = {
                 "directors": sorted(source_profile.directors & profile.directors),
                 "writers": sorted(source_profile.writers & profile.writers),

@@ -13,7 +13,7 @@ from pydantic import BaseModel, HttpUrl
 
 from app.keys_store import persist_keys
 from app.config import save_config, settings
-from app.services.generate_logging import get_generate_logger
+from app.services.generate_logging import get_generate_logger, get_webui_logger
 from app.services.plex_auth import (
     check_login,
     list_available_libraries,
@@ -34,6 +34,7 @@ templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 ENV_PATH = Path(".env")
 LOGGER = get_generate_logger()
+WEB_LOGGER = get_webui_logger()
 
 RECENT_CACHE_TTL_SECONDS = 300
 RECENT_ACTIVITY_CACHE: dict[str, object] = {"data": None, "timestamp": 0.0}
@@ -46,6 +47,45 @@ RECOMMENDATION_CACHE: dict[str, object] = {
     "timestamp": 0.0,
 }
 RECOMMENDATION_CACHE_LOCK = asyncio.Lock()
+
+
+@app.middleware("http")
+async def log_web_requests(request: Request, call_next):
+    start = time.perf_counter()
+    WEB_LOGGER.info(
+        "Incoming request",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "client": request.client.host if request.client else None,
+        },
+    )
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = (time.perf_counter() - start) * 1000
+        WEB_LOGGER.exception(
+            "Request failed",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "duration_ms": round(duration_ms, 2),
+            },
+        )
+        raise
+
+    duration_ms = (time.perf_counter() - start) * 1000
+    WEB_LOGGER.info(
+        "Completed request",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": round(duration_ms, 2),
+        },
+    )
+    return response
 
 
 class TmdbKeyRequest(BaseModel):
@@ -218,6 +258,15 @@ async def dashboard(request: Request):
             shows = cached_recs.get("shows", []) if cached_recs else []
         except Exception:  # noqa: BLE001
             LOGGER.exception("Failed to load cached recommendations for dashboard")
+    WEB_LOGGER.info(
+        "Rendering dashboard",
+        extra={
+            "movies": len(movies),
+            "shows": len(shows),
+            "recent_movies": len(recent_movies),
+            "recent_shows": len(recent_shows),
+        },
+    )
     return templates.TemplateResponse(
         "dashboard.html",
         {

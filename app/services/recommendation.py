@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 
+from app.services.generate_logging import get_generate_logger
 from app.services.letterboxd_client import LetterboxdClient, MediaProfile, profile_similarity
 from app.services.plex_service import PlexService
 
@@ -17,7 +17,7 @@ class Recommendation:
     letterboxd_rating: float | None = None
 
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = get_generate_logger()
 
 
 class RecommendationEngine:
@@ -89,7 +89,9 @@ class RecommendationEngine:
 
     def build_movie_collection(self, limit: int = 10, days: int = 30) -> List[Recommendation]:
         recommendations: List[Recommendation] = []
-        for movie in self.plex.recently_watched_movies(days=days):
+        recent_movies = list(self.plex.recently_watched_movies(days=days))
+        LOGGER.debug("Found recently watched movies", extra={"count": len(recent_movies)})
+        for movie in recent_movies:
             recommendations.extend(self.top_recommendations_for_item(movie, media_type="movie"))
         unique: List[Recommendation] = []
         seen = set()
@@ -99,12 +101,18 @@ class RecommendationEngine:
             seen.add(rec.rating_key)
             unique.append(rec)
         final = unique[: limit * 3]
+        LOGGER.debug(
+            "Compiled movie recommendations",
+            extra={"candidates": len(recommendations), "unique": len(final)},
+        )
         self._refresh_collection("Recommended Movies", final)
         return final
 
     def build_show_collection(self, limit: int = 10, days: int = 30) -> List[Recommendation]:
         recommendations: List[Recommendation] = []
-        for show in self.plex.recently_watched_shows(days=days):
+        recent_shows = list(self.plex.recently_watched_shows(days=days))
+        LOGGER.debug("Found recently watched shows", extra={"count": len(recent_shows)})
+        for show in recent_shows:
             recommendations.extend(self.top_recommendations_for_item(show, media_type="tv"))
         unique: List[Recommendation] = []
         seen = set()
@@ -114,5 +122,9 @@ class RecommendationEngine:
             seen.add(rec.rating_key)
             unique.append(rec)
         final = unique[: limit * 3]
+        LOGGER.debug(
+            "Compiled show recommendations",
+            extra={"candidates": len(recommendations), "unique": len(final)},
+        )
         self._refresh_collection("Recommended Shows", final)
         return final

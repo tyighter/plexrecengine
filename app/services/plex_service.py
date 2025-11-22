@@ -144,7 +144,24 @@ class PlexService:
             raise RuntimeError("Unable to determine library section for collection members")
 
         collection = self.ensure_collection(collection_name, section, items=items)
-        collection.deleteItems(collection.items())
+        existing_items = list(collection.items())
+        if existing_items:
+            try:
+                collection.removeItems(existing_items)
+            except AttributeError:
+                # Fallback for PlexAPI versions that do not expose removeItems on
+                # collections; remove the collection tag from each item instead.
+                for existing_item in existing_items:
+                    try:
+                        existing_item.removeCollection(collection)
+                    except Exception:
+                        LOGGER.exception(
+                            "Failed to remove item from Plex collection",
+                            extra={
+                                "collection": collection_name,
+                                "item_title": getattr(existing_item, "title", None),
+                            },
+                        )
         LOGGER.debug(
             "Reset Plex collection items",
             extra={"collection": collection_name, "item_count": len(items)},

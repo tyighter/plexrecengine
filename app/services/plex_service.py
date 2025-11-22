@@ -233,6 +233,28 @@ class PlexService:
 
         return section.createCollection(title, items=items)
 
+    def fetch_item(self, rating_key):
+        """Fetch a Plex item by rating key or metadata path.
+
+        Some Plex API calls expect the full metadata path (``/library/metadata/<id>``)
+        while others accept a bare rating key. Normalize the input so collection
+        updates can reliably fetch every recommendation, and log failures so we
+        can surface partial updates instead of silently skipping entries.
+        """
+
+        key = str(rating_key)
+        if key.isdigit():
+            key = f"/library/metadata/{key}"
+
+        try:
+            return self.client.fetchItem(key)
+        except Exception:
+            LOGGER.exception(
+                "Failed to fetch Plex item by rating key",
+                extra={"rating_key": rating_key, "resolved_key": key},
+            )
+            return None
+
     def set_collection_members(self, collection_name: str, items: Iterable):
         items = list(items)
         if not items:

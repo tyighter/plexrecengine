@@ -98,12 +98,12 @@ class RecommendationEngine:
         for profile, score, breakdown in scored[: count * 2]:
             # try to find an unwatched matching item in Plex
             plex_matches = list(
-                self.plex.search_unwatched(section_type=media_type, query=profile.title)
+                self.plex.search_library(section_type=media_type, query=profile.title)
             )
             if not plex_matches:
                 skipped_not_in_library.append(profile.title)
                 SCORING_LOGGER.info(
-                    "Skipping %s (tmdb_id=%s) — not found as unwatched in Plex library",
+                    "Skipping %s (tmdb_id=%s) — not found in Plex library",
                     profile.title,
                     profile.tmdb_id,
                 )

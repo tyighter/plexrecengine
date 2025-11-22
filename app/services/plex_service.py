@@ -345,14 +345,15 @@ class PlexService:
         )
         return shows
 
-    def search_unwatched(self, section_type: str, query: str):
+    def search_library(self, section_type: str, query: str):
         for section in self._library_sections():
             if section.TYPE != section_type:
                 continue
             try:
                 # PlexAPI does not expose a searchTitle helper; use the standard
-                # search API with explicit title and unwatched filters instead.
-                for item in section.search(title=query, unwatched=True):
+                # search API with explicit title filter instead so watched items
+                # are included in recommendations.
+                for item in section.search(title=query, maxresults=50):
                     yield item
             except Exception:
                 LOGGER.exception(

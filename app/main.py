@@ -35,6 +35,14 @@ LOGGER = get_generate_logger()
 RECENT_CACHE_TTL_SECONDS = 300
 RECENT_ACTIVITY_CACHE: dict[str, object] = {"data": None, "timestamp": 0.0}
 RECENT_CACHE_LOCK = asyncio.Lock()
+LAST_SEEN_RECENT_KEYS: set[str] = set()
+
+RECOMMENDATION_CACHE: dict[str, object] = {
+    "movies": [],
+    "shows": [],
+    "timestamp": 0.0,
+}
+RECOMMENDATION_CACHE_LOCK = asyncio.Lock()
 
 
 class TmdbKeyRequest(BaseModel):
@@ -53,11 +61,19 @@ class TautulliConfigRequest(BaseModel):
 
 
 def _serialize_recent(item, poster_url):
+    def _maybe_iso(dt):
+        try:
+            return dt.isoformat()
+        except Exception:  # noqa: BLE001
+            return None
+
     return {
         "title": getattr(item, "title", ""),
         "poster": poster_url(item) if item else None,
         "year": getattr(item, "year", None),
         "library": getattr(item, "librarySectionTitle", None),
+        "rating_key": getattr(item, "ratingKey", None),
+        "last_viewed_at": _maybe_iso(getattr(item, "lastViewedAt", None)),
     }
 
 
@@ -96,6 +112,65 @@ async def refresh_recent_cache(force: bool = False) -> dict[str, list[dict[str, 
 def invalidate_recent_cache() -> None:
     RECENT_ACTIVITY_CACHE["timestamp"] = 0.0
     RECENT_ACTIVITY_CACHE["data"] = None
+    LAST_SEEN_RECENT_KEYS.clear()
+
+
+def _extract_recent_keys(data: dict[str, list[dict[str, object]]] | None) -> set[str]:
+    if not data:
+        return set()
+    keys = set()
+    for item in data.get("recent_movies", []):
+        rating_key = item.get("rating_key")
+        if rating_key is not None:
+            keys.add(str(rating_key))
+    for item in data.get("recent_shows", []):
+        rating_key = item.get("rating_key")
+        if rating_key is not None:
+            keys.add(str(rating_key))
+    return keys
+
+
+async def _generate_recommendations(force: bool = False) -> dict[str, object]:
+    async with RECOMMENDATION_CACHE_LOCK:
+        if not force and RECOMMENDATION_CACHE["movies"] and RECOMMENDATION_CACHE["shows"]:
+            return {
+                "movies": RECOMMENDATION_CACHE["movies"],
+                "shows": RECOMMENDATION_CACHE["shows"],
+            }
+
+        plex = get_plex_service()
+        letterboxd = get_letterboxd_client()
+        engine = RecommendationEngine(plex, letterboxd)
+        movies = engine.build_movie_collection()
+        shows = engine.build_show_collection()
+        RECOMMENDATION_CACHE["movies"] = [m.__dict__ for m in movies]
+        RECOMMENDATION_CACHE["shows"] = [s.__dict__ for s in shows]
+        RECOMMENDATION_CACHE["timestamp"] = time.time()
+        return {"movies": RECOMMENDATION_CACHE["movies"], "shows": RECOMMENDATION_CACHE["shows"]}
+
+
+async def _watch_recent_activity():
+    while True:
+        try:
+            if not settings.is_plex_configured:
+                await asyncio.sleep(120)
+                continue
+
+            recent = await refresh_recent_cache(force=True)
+            current_keys = _extract_recent_keys(recent)
+            new_keys = current_keys - LAST_SEEN_RECENT_KEYS
+            LAST_SEEN_RECENT_KEYS.clear()
+            LAST_SEEN_RECENT_KEYS.update(current_keys)
+
+            if new_keys and settings.tmdb_api_key:
+                LOGGER.info(
+                    "Detected %s new recently watched items; rebuilding recommendations",
+                    len(new_keys),
+                )
+                await _generate_recommendations(force=True)
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Background recent activity watcher failed")
+        await asyncio.sleep(120)
 
 
 @app.on_event("startup")
@@ -115,14 +190,31 @@ async def startup_build_collections():
     asyncio.create_task(asyncio.to_thread(build_collections))
     if settings.is_plex_configured:
         asyncio.create_task(refresh_recent_cache())
+    asyncio.create_task(_watch_recent_activity())
 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     movies = []
     shows = []
-    recent_movies = []
-    recent_shows = []
+    recent_movies: list[dict[str, object]] = []
+    recent_shows: list[dict[str, object]] = []
+
+    if settings.is_plex_configured:
+        try:
+            recent = await refresh_recent_cache()
+            recent_movies = list(recent.get("recent_movies", []))  # type: ignore[arg-type]
+            recent_shows = list(recent.get("recent_shows", []))  # type: ignore[arg-type]
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Failed to load recent activity for dashboard")
+
+    if settings.is_plex_configured and settings.tmdb_api_key:
+        try:
+            cached_recs = await _generate_recommendations()
+            movies = cached_recs.get("movies", []) if cached_recs else []
+            shows = cached_recs.get("shows", []) if cached_recs else []
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Failed to load cached recommendations for dashboard")
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -247,6 +339,7 @@ async def webhook_trigger():
         engine = RecommendationEngine(plex, letterboxd)
         engine.build_movie_collection()
         engine.build_show_collection()
+        await _generate_recommendations(force=True)
         return {"status": "ok"}
     return {"status": "skipped", "reason": "Plex is not configured"}
 
@@ -262,22 +355,28 @@ async def build_recommendations():
         raise HTTPException(status_code=400, detail="TMDB API key is missing")
 
     try:
-        plex = get_plex_service()
-        letterboxd = get_letterboxd_client()
-        LOGGER.debug("Initialized Plex and Letterboxd clients")
-
-        engine = RecommendationEngine(plex, letterboxd)
-        LOGGER.debug("Starting movie recommendations")
-        movies = engine.build_movie_collection()
-        LOGGER.debug("Starting show recommendations")
-        shows = engine.build_show_collection()
-        LOGGER.info("Recommendation generation complete", extra={"movies": len(movies), "shows": len(shows)})
-        return {
-            "movies": [m.__dict__ for m in movies],
-            "shows": [s.__dict__ for s in shows],
-        }
+        recommendations = await _generate_recommendations(force=True)
+        LOGGER.info(
+            "Recommendation generation complete",
+            extra={
+                "movies": len(recommendations.get("movies", [])),
+                "shows": len(recommendations.get("shows", [])),
+            },
+        )
+        return recommendations
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
         LOGGER.exception("Unexpected error during recommendation generation")
         raise HTTPException(status_code=500, detail="Failed to generate recommendations") from exc
+
+
+@app.get("/api/recommendations")
+async def cached_recommendations():
+    if not settings.is_plex_configured or not settings.tmdb_api_key:
+        return {"movies": [], "shows": []}
+    try:
+        return await _generate_recommendations()
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.exception("Failed to return cached recommendations")
+        raise HTTPException(status_code=500, detail="Failed to load recommendations") from exc

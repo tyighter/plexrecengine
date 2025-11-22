@@ -299,6 +299,8 @@
     const recentShowsEl = document.getElementById('recent-shows');
     const initialMovies = {{ movies | tojson }};
     const initialShows = {{ shows | tojson }};
+    const initialRecentMovies = {{ recent_movies | tojson }};
+    const initialRecentShows = {{ recent_shows | tojson }};
     const plexStatusPill = document.getElementById('plex-status');
     const plexStatusText = document.getElementById('plex-status-text');
     const tautulliStatusPill = document.getElementById('tautulli-status');
@@ -462,6 +464,18 @@
 
     renderCards(recommendedMoviesEl, initialMovies);
     renderCards(recommendedShowsEl, initialShows);
+    renderRecent(
+        recentMoviesEl,
+        recentMoviesStatus,
+        initialRecentMovies,
+        'Watch something in Plex to see it appear here.',
+    );
+    renderRecent(
+        recentShowsEl,
+        recentShowsStatus,
+        initialRecentShows,
+        'Watch something in Plex to see it appear here.',
+    );
 
     async function loadRecentActivity() {
         if (!isPlexConfigured) {

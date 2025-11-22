@@ -140,36 +140,74 @@ class PlexService:
         if not items:
             return
 
-        random.shuffle(items)
-
         section = self._find_section_for_item(items[0])
         if section is None:
             raise RuntimeError("Unable to determine library section for collection members")
 
         collection = self.ensure_collection(collection_name, section, items=items)
-        existing_items = list(collection.items())
-        if existing_items:
+        try:
+            existing_items = list(collection.items())
+        except Exception:
+            LOGGER.exception(
+                "Failed to load existing Plex collection items",
+                extra={"collection": collection_name},
+            )
+            existing_items = []
+
+        target_keys = {
+            getattr(item, "ratingKey", None) for item in items if hasattr(item, "ratingKey")
+        }
+        existing_keys = {
+            getattr(item, "ratingKey", None) for item in existing_items if hasattr(item, "ratingKey")
+        }
+
+        items_to_remove = []
+        if target_keys:
+            for item in existing_items:
+                key = getattr(item, "ratingKey", None)
+                if key is not None and key not in target_keys:
+                    items_to_remove.append(item)
+
+        if items_to_remove:
             try:
-                collection.removeItems(existing_items)
-            except AttributeError:
-                # Fallback for PlexAPI versions that do not expose removeItems on
-                # collections; remove the collection tag from each item instead.
-                for existing_item in existing_items:
-                    try:
-                        existing_item.removeCollection(collection)
-                    except Exception:
-                        LOGGER.exception(
-                            "Failed to remove item from Plex collection",
-                            extra={
-                                "collection": collection_name,
-                                "item_title": getattr(existing_item, "title", None),
-                            },
-                        )
-        LOGGER.debug(
-            "Reset Plex collection items",
-            extra={"collection": collection_name, "item_count": len(items)},
-        )
+                collection.removeItems(items_to_remove)
+                LOGGER.debug(
+                    "Removed items missing from recommendations",
+                    extra={
+                        "collection": collection_name,
+                        "removed_count": len(items_to_remove),
+                        "remaining_count": len(existing_items) - len(items_to_remove),
+                    },
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Failed to remove outdated Plex collection items",
+                    extra={"collection": collection_name, "remove_count": len(items_to_remove)},
+                )
+
+        new_items = []
         for item in items:
+            key = getattr(item, "ratingKey", None)
+            if key is not None and key in existing_keys:
+                continue
+            new_items.append(item)
+            if key is not None:
+                existing_keys.add(key)
+
+        if not new_items:
+            LOGGER.debug(
+                "No new items to add to Plex collection",
+                extra={
+                    "collection": collection_name,
+                    "existing_count": len(existing_items),
+                    "removed_count": len(items_to_remove),
+                },
+            )
+            return
+
+        random.shuffle(new_items)
+
+        for item in new_items:
             item.addCollection(collection)
             LOGGER.debug(
                 "Added item to Plex collection",
@@ -179,6 +217,16 @@ class PlexService:
                     "section": getattr(section, "title", None),
                 },
             )
+
+        LOGGER.debug(
+            "Updated Plex collection members",
+            extra={
+                "collection": collection_name,
+                "added_count": len(new_items),
+                "removed_count": len(items_to_remove),
+                "existing_count": len(existing_items),
+            },
+        )
 
     def poster_url(self, item) -> Optional[str]:
         """Return a usable poster URL for any Plex item.

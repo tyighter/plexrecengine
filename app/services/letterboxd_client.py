@@ -249,10 +249,14 @@ class LetterboxdClient:
                 return tmdb_id
         return None
 
-    def search_related(self, profile: MediaProfile, limit: int = 15) -> List[MediaProfile]:
+    def search_related(
+        self, profile: MediaProfile, limit: int | None = 15
+    ) -> List[MediaProfile]:
         similar = self.client.get(f"/{profile.media_type}/{profile.tmdb_id}/similar").json().get("results", [])
         recommendations: List[MediaProfile] = []
-        for item in similar[:limit * 2]:
+        max_results = limit if limit and limit > 0 else None
+        candidates = similar if max_results is None else similar[: max_results * 2]
+        for item in candidates:
             tmdb_id = item.get("id")
             if tmdb_id is None:
                 continue
@@ -260,7 +264,7 @@ class LetterboxdClient:
                 recommendations.append(self.fetch_profile(tmdb_id, profile.media_type))
             except Exception:
                 continue
-            if len(recommendations) >= limit:
+            if max_results and len(recommendations) >= max_results:
                 break
         return recommendations
 

@@ -484,6 +484,30 @@
             </form>
             <p id="tmdb-status" class="muted"></p>
         </section>
+        <section
+            id="recommendation-config"
+            aria-label="Recommendation configuration"
+            data-current-pool="{{ settings.related_pool_limit }}"
+        >
+            <p><strong>Recommendation pool</strong></p>
+            <p class="muted">Choose how many related titles to fetch before scoring. Set to 0 for unlimited.</p>
+            <div class="grid-two-column">
+                <label for="related-pool-limit">Related titles to fetch
+                    <input
+                        id="related-pool-limit"
+                        name="related-pool-limit"
+                        type="number"
+                        min="0"
+                        step="1"
+                        value="{{ settings.related_pool_limit }}"
+                    />
+                </label>
+            </div>
+            <footer>
+                <button id="save-recommendation-settings" role="button">Save Recommendation Settings</button>
+                <p id="recommendation-settings-status" class="muted"></p>
+            </footer>
+        </section>
     </article>
 </dialog>
 <script>
@@ -524,6 +548,10 @@
     const tmdbStatus = document.getElementById('tmdb-status');
     const tmdbInlineStatus = document.getElementById('tmdb-inline-status');
     const tmdbConfigured = "{{ 'true' if settings.tmdb_api_key else 'false' }}" === "true";
+    const recommendationConfigSection = document.getElementById('recommendation-config');
+    const relatedPoolInput = document.getElementById('related-pool-limit');
+    const recommendationSettingsStatus = document.getElementById('recommendation-settings-status');
+    const currentRelatedPool = recommendationConfigSection?.dataset.currentPool || '';
 
     const recommendationStatus = document.getElementById('recommendation-status');
     const generateButton = document.getElementById('generate-recommendations');
@@ -966,11 +994,42 @@
         if (tautulliApiKeyInput) {
             tautulliApiKeyInput.value = '';
         }
+        if (relatedPoolInput) {
+            relatedPoolInput.value = currentRelatedPool || relatedPoolInput.value || '20';
+        }
         settingsDialog.showModal();
     });
 
     closeSettings?.addEventListener('click', () => {
         settingsDialog.close();
+    });
+
+    document.getElementById('save-recommendation-settings')?.addEventListener('click', async () => {
+        if (!relatedPoolInput || !recommendationSettingsStatus) return;
+        const parsedLimit = Number.parseInt(relatedPoolInput.value, 10);
+        if (Number.isNaN(parsedLimit) || parsedLimit < 0) {
+            recommendationSettingsStatus.textContent = 'Enter a non-negative number (0 for unlimited).';
+            return;
+        }
+        recommendationSettingsStatus.textContent = 'Saving recommendation settings...';
+        try {
+            const response = await fetch('/api/recommendations/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ relatedPoolLimit: parsedLimit }),
+            });
+            if (!response.ok) {
+                const error = await response.json();
+                recommendationSettingsStatus.textContent = error?.detail || 'Unable to save recommendation settings.';
+                return;
+            }
+            recommendationConfigSection.dataset.currentPool = String(parsedLimit);
+            recommendationSettingsStatus.textContent = 'Saved recommendation settings. Reload to apply changes.';
+        } catch (err) {
+            recommendationSettingsStatus.textContent = 'Failed to save recommendation settings.';
+        }
     });
 
     tmdbForm?.addEventListener('submit', async (event) => {

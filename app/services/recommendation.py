@@ -72,7 +72,12 @@ class RecommendationEngine:
         if source_profile is None:
             SCORING_LOGGER.info("No profile available; skipping scoring for this item")
             return []
-        related = list(self.letterboxd.search_related(source_profile, limit=20))
+        related_pool_limit = settings.related_pool_limit
+        related = list(
+            self.letterboxd.search_related(
+                source_profile, limit=None if related_pool_limit == 0 else related_pool_limit
+            )
+        )
         SCORING_LOGGER.info(
             "Initial related pool (%s): %s",
             len(related),

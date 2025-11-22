@@ -104,6 +104,10 @@ class TautulliConfigRequest(BaseModel):
     apiKey: str
 
 
+class RecommendationConfig(BaseModel):
+    relatedPoolLimit: int
+
+
 def _serialize_recent(item, poster_url):
     def _maybe_iso(dt):
         try:
@@ -436,6 +440,19 @@ async def set_tmdb_api_key(payload: TmdbKeyRequest):
     persist_keys(tmdb_api_key=api_key)
     settings.tmdb_api_key = api_key
     return {"status": "ok"}
+
+
+@app.post("/api/recommendations/config")
+async def set_recommendation_config(payload: RecommendationConfig):
+    if payload.relatedPoolLimit < 0:
+        raise HTTPException(
+            status_code=400, detail="Related pool limit must be zero or greater"
+        )
+    ENV_PATH.touch(exist_ok=True)
+    set_key(str(ENV_PATH), "RELATED_POOL_LIMIT", str(payload.relatedPoolLimit))
+    save_config({"RELATED_POOL_LIMIT": payload.relatedPoolLimit})
+    settings.related_pool_limit = payload.relatedPoolLimit
+    return {"status": "ok", "related_pool_limit": payload.relatedPoolLimit}
 
 
 @app.post("/webhook")

@@ -74,6 +74,41 @@
             visibility: visible;
             transform: translateY(0);
         }
+        .connection-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+            margin-top: 0.5rem;
+        }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.35rem 0.7rem;
+            border-radius: 999px;
+            background: #f3f4f6;
+            color: #1f2937;
+            border: 1px solid #e5e7eb;
+            font-weight: 600;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            background: #d1d5db;
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.04);
+        }
+        .status-pill.connected .status-dot {
+            background: #16a34a;
+        }
+        .status-pill.pending .status-dot {
+            background: #f59e0b;
+        }
+        .status-pill.disconnected .status-dot {
+            background: #ef4444;
+        }
     </style>
 </head>
 <body>
@@ -82,6 +117,16 @@
         <div class="header-actions">
             <div>
                 <h1>Plex Recommendations</h1>
+                <div class="connection-badges" aria-label="Connection status">
+                    <span id="plex-status" class="status-pill {{ 'connected' if settings.is_plex_configured else 'disconnected' }}" aria-live="polite">
+                        <span class="status-dot" aria-hidden="true"></span>
+                        <span id="plex-status-text">Plex {{ 'Connected' if settings.is_plex_configured else 'Not connected' }}</span>
+                    </span>
+                    <span id="tautulli-status" class="status-pill {{ 'connected' if settings.is_tautulli_configured else 'disconnected' }}" aria-live="polite">
+                        <span class="status-dot" aria-hidden="true"></span>
+                        <span id="tautulli-status-text">Tautulli {{ 'Connected' if settings.is_tautulli_configured else 'Not connected' }}</span>
+                    </span>
+                </div>
                 {% if settings.is_plex_configured %}
                 <p>Signed into Plex at {{ settings.plex_base_url }}. Build recommendations on demand or when the webhook is called after a watch.</p>
                 <p class="muted">Using movie library <strong>{{ settings.plex_movie_library }}</strong> and TV library <strong>{{ settings.plex_show_library }}</strong>.</p>
@@ -247,6 +292,30 @@
     const recentShowsEl = document.getElementById('recent-shows');
     const initialMovies = {{ movies | tojson }};
     const initialShows = {{ shows | tojson }};
+    const plexStatusPill = document.getElementById('plex-status');
+    const plexStatusText = document.getElementById('plex-status-text');
+    const tautulliStatusPill = document.getElementById('tautulli-status');
+    const tautulliStatusText = document.getElementById('tautulli-status-text');
+
+    function setConnectionStatus(pill, textEl, state, label) {
+        if (!pill || !textEl) return;
+        pill.classList.remove('connected', 'disconnected', 'pending');
+        pill.classList.add(state);
+        textEl.textContent = label;
+    }
+
+    setConnectionStatus(
+        plexStatusPill,
+        plexStatusText,
+        isPlexConfigured ? 'connected' : 'disconnected',
+        `Plex ${isPlexConfigured ? 'Connected' : 'Not connected'}`,
+    );
+    setConnectionStatus(
+        tautulliStatusPill,
+        tautulliStatusText,
+        isTautulliConfigured ? 'connected' : 'disconnected',
+        `Tautulli ${isTautulliConfigured ? 'Connected' : 'Not connected'}`,
+    );
 
     function renderCards(container, items) {
         container.innerHTML = '';
@@ -491,27 +560,33 @@
                     if (data.status === 'authorized') {
                         clearInterval(pollInterval);
                         statusEl.innerHTML = `Connected to ${data.serverName || 'Plex'} at <code>${data.baseUrl}</code>. Choose your libraries below, then reload the page to start generating recommendations.`;
+                        setConnectionStatus(plexStatusPill, plexStatusText, 'connected', `Plex Connected${data.baseUrl ? ` · ${data.baseUrl}` : ''}`);
                         showLibraries(data.libraries);
                         fetchTautulliUsers();
                     } else if (data.status === 'invalid') {
                         clearInterval(pollInterval);
                         statusEl.textContent = 'Sign-in link is no longer valid. Please start again.';
+                        setConnectionStatus(plexStatusPill, plexStatusText, 'disconnected', 'Plex Not connected');
                     } else if (data.status === 'expired') {
                     clearInterval(pollInterval);
                     statusEl.textContent = 'Sign-in expired. Please start again.';
+                    setConnectionStatus(plexStatusPill, plexStatusText, 'disconnected', 'Plex Not connected');
                 } else if (data.status === 'error') {
                     clearInterval(pollInterval);
                     statusEl.textContent = 'There was an error completing Plex sign-in. Please try again.';
+                    setConnectionStatus(plexStatusPill, plexStatusText, 'disconnected', 'Plex Not connected');
                 }
             } catch (err) {
                 clearInterval(pollInterval);
                 statusEl.textContent = 'Unable to check Plex login status.';
+                setConnectionStatus(plexStatusPill, plexStatusText, 'disconnected', 'Plex Not connected');
             }
         }, 1500);
     }
 
     startButton?.addEventListener('click', async () => {
         statusEl.textContent = 'Requesting Plex sign-in link...';
+        setConnectionStatus(plexStatusPill, plexStatusText, 'pending', 'Plex Connecting...');
         try {
             const response = await fetch('/api/plex/login/start', { method: 'POST' });
             const data = await response.json();
@@ -543,6 +618,7 @@
             if (!response.ok) {
                 const error = await response.json();
                 tautulliStatus.textContent = error?.detail || 'Unable to save Tautulli settings.';
+                setConnectionStatus(tautulliStatusPill, tautulliStatusText, 'disconnected', 'Tautulli Not connected');
                 return;
             }
             tautulliStatus.textContent = 'Saved Tautulli settings. Reload to apply changes.';
@@ -552,9 +628,14 @@
             if (tautulliUsersSection) {
                 tautulliUsersSection.hidden = false;
             }
+            const tautulliLabel = tautulliAddressInput?.value
+                ? `Tautulli Connected · ${tautulliAddressInput.value}`
+                : 'Tautulli Connected';
+            setConnectionStatus(tautulliStatusPill, tautulliStatusText, 'connected', tautulliLabel);
             fetchTautulliUsers();
         } catch (err) {
             tautulliStatus.textContent = 'Failed to save Tautulli settings.';
+            setConnectionStatus(tautulliStatusPill, tautulliStatusText, 'disconnected', 'Tautulli Not connected');
         }
     });
 

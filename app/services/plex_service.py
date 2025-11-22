@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import inspect
 import random
 from typing import Iterable, List, Optional
 
@@ -16,6 +17,7 @@ class PlexService:
         if not settings.is_plex_configured:
             raise RuntimeError("Plex is not configured. Please sign in through the web interface.")
         self.client = PlexServer(str(settings.plex_base_url), settings.plex_token)
+        self._history_params = set(inspect.signature(self.client.history).parameters)
         LOGGER.debug(
             "Initialized Plex service client",
             extra={
@@ -24,6 +26,20 @@ class PlexService:
                 "show_library": settings.plex_show_library,
             },
         )
+
+    def _history_kwargs(self, section, cutoff: datetime, limit: int):
+        kwargs = {
+            "librarySectionID": getattr(section, "key", None),
+            "mindate": cutoff,
+            "maxresults": limit,
+        }
+
+        if "type" in self._history_params:
+            section_type = getattr(section, "TYPE", None)
+            if section_type:
+                kwargs["type"] = section_type
+
+        return kwargs
 
     def _library_sections(self):
         for name in [settings.plex_movie_library, settings.plex_show_library]:
@@ -44,11 +60,7 @@ class PlexService:
                 continue
 
             try:
-                history_entries = self.client.history(
-                    librarySectionID=getattr(section, "key", None),
-                    mindate=cutoff,
-                    maxresults=limit,
-                )
+                history_entries = self.client.history(**self._history_kwargs(section, cutoff, limit))
             except Exception:
                 LOGGER.exception(
                     "Failed to load Plex history for movies", extra={"section": getattr(section, "title", None)}
@@ -99,11 +111,7 @@ class PlexService:
                 continue
 
             try:
-                history_entries = self.client.history(
-                    librarySectionID=getattr(section, "key", None),
-                    mindate=cutoff,
-                    maxresults=limit,
-                )
+                history_entries = self.client.history(**self._history_kwargs(section, cutoff, limit))
             except Exception:
                 LOGGER.exception(
                     "Failed to load Plex history for shows", extra={"section": getattr(section, "title", None)}

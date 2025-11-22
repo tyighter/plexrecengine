@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 
-from app.services.generate_logging import get_generate_logger
+from app.services.generate_logging import get_generate_logger, get_scoring_logger
 from app.services.letterboxd_client import LetterboxdClient, MediaProfile, profile_similarity
 from app.services.plex_service import PlexService
 
@@ -21,6 +21,7 @@ class Recommendation:
 
 
 LOGGER = get_generate_logger()
+SCORING_LOGGER = get_scoring_logger()
 
 
 class RecommendationEngine:
@@ -59,16 +60,31 @@ class RecommendationEngine:
     def top_recommendations_for_item(
         self, item, media_type: str, count: int = 6
     ) -> List[Recommendation]:
-        source_profile = self._profile_for_item(item, media_type)
-        if source_profile is None:
-            return []
-        related = self.letterboxd.search_related(source_profile, limit=20)
-        scored = self._score_related(source_profile, related)
         source_title = getattr(item, "title", None)
         source_year = getattr(item, "year", None)
         source_label = (
             f"{source_title} ({source_year})" if source_title and source_year else source_title
         )
+
+        SCORING_LOGGER.info("==== Recently watched: %s ====", source_label or "Unknown")
+        source_profile = self._profile_for_item(item, media_type)
+        if source_profile is None:
+            SCORING_LOGGER.info("No profile available; skipping scoring for this item")
+            return []
+        related = self.letterboxd.search_related(source_profile, limit=20)
+        scored = self._score_related(source_profile, related)
+        if not scored:
+            SCORING_LOGGER.info("No related titles produced non-zero scores")
+        else:
+            for rank, (profile, score, breakdown) in enumerate(scored, start=1):
+                SCORING_LOGGER.info(
+                    "#%s %s (tmdb_id=%s) score=%.2f breakdown=%s",
+                    rank,
+                    profile.title,
+                    profile.tmdb_id,
+                    score,
+                    breakdown,
+                )
         recommendations: List[Recommendation] = []
         for profile, score, breakdown in scored[: count * 2]:
             # try to find an unwatched matching item in Plex
@@ -95,6 +111,11 @@ class RecommendationEngine:
                         reason=". ".join(reason_parts),
                         score_breakdown=breakdown,
                     )
+                )
+                SCORING_LOGGER.info(
+                    "Selected Plex item '%s' for recommendation (score=%.2f)",
+                    plex_item.title,
+                    score,
                 )
                 break
             if len(recommendations) >= count:

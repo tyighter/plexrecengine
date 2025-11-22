@@ -18,6 +18,9 @@ PLEX_LIBRARY_NAMES=Movies,TV Shows
 PLEX_USER_ID=<optional-plex-account-id>
 TMDB_API_KEY=<tmdb-api-key>
 LETTERBOXD_SESSION=<optional-letterboxd-session-cookie>
+DASHBOARD_TIMEOUT_SECONDS=10
+RECENT_ACTIVITY_TIMEOUT_SECONDS=10
+RECOMMENDATION_BUILD_TIMEOUT_SECONDS=120
 ```
 
 > The recommendation engine expects Plex GUIDs to include TMDB IDs (e.g., `tmdb://12345`).
@@ -25,6 +28,14 @@ LETTERBOXD_SESSION=<optional-letterboxd-session-cookie>
 > monitor so history is filtered to that user. Leave it unset to include all users.
 > You can also configure Plex libraries and the optional user filter from the web dashboard
 > in the **Sign-In & API Settings** modal.
+
+### Timeouts
+
+The web dashboard uses shorter timeouts (defaults: 10s for rendering cached recommendations, 10s
+for refreshing recent activity) so the page can load quickly even if Plex or external services are
+slow. API-triggered recommendation rebuilds use a longer timeout (default: 120s) to accommodate
+typical collection refresh durations. Override these values with the environment variables shown
+above if your server routinely needs more or less time.
 
 ## Run with Docker Compose
 

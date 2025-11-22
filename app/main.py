@@ -37,7 +37,6 @@ LOGGER = get_generate_logger()
 WEB_LOGGER = get_webui_logger()
 
 RECENT_CACHE_TTL_SECONDS = 300
-REQUEST_TIMEOUT_SECONDS = 10.0
 RECENT_ACTIVITY_CACHE: dict[str, object] = {"data": None, "timestamp": 0.0}
 RECENT_CACHE_LOCK = asyncio.Lock()
 LAST_SEEN_RECENT_KEYS: set[str] = set()
@@ -250,7 +249,7 @@ async def dashboard(request: Request):
     if settings.is_plex_configured:
         try:
             recent = await asyncio.wait_for(
-                refresh_recent_cache(), timeout=REQUEST_TIMEOUT_SECONDS
+                refresh_recent_cache(), timeout=settings.recent_activity_timeout_seconds
             )
             recent_movies = list(recent.get("recent_movies", []))  # type: ignore[arg-type]
             recent_shows = list(recent.get("recent_shows", []))  # type: ignore[arg-type]
@@ -262,7 +261,7 @@ async def dashboard(request: Request):
     if settings.is_plex_configured and settings.tmdb_api_key:
         try:
             cached_recs = await asyncio.wait_for(
-                _generate_recommendations(), timeout=REQUEST_TIMEOUT_SECONDS
+                _generate_recommendations(), timeout=settings.dashboard_timeout_seconds
             )
             movies = cached_recs.get("movies", []) if cached_recs else []
             shows = cached_recs.get("shows", []) if cached_recs else []
@@ -307,7 +306,8 @@ async def recent_activity():
     try:
         try:
             return await asyncio.wait_for(
-                refresh_recent_cache(force=True), timeout=REQUEST_TIMEOUT_SECONDS
+                refresh_recent_cache(force=True),
+                timeout=settings.recent_activity_timeout_seconds,
             )
         except asyncio.TimeoutError:
             LOGGER.warning("Timed out refreshing recent activity; returning stale cache if available")
@@ -430,7 +430,8 @@ async def build_recommendations():
 
     try:
         recommendations = await asyncio.wait_for(
-            _generate_recommendations(force=True), timeout=REQUEST_TIMEOUT_SECONDS
+            _generate_recommendations(force=True),
+            timeout=settings.recommendation_build_timeout_seconds,
         )
         LOGGER.info(
             "Recommendation generation complete",
@@ -456,7 +457,7 @@ async def cached_recommendations():
         return {"movies": [], "shows": []}
     try:
         return await asyncio.wait_for(
-            _generate_recommendations(), timeout=REQUEST_TIMEOUT_SECONDS
+            _generate_recommendations(), timeout=settings.dashboard_timeout_seconds
         )
     except asyncio.TimeoutError as exc:
         LOGGER.warning("Timed out returning cached recommendations")

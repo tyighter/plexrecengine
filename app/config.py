@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     tautulli_user_id: str | None = None
     tmdb_api_key: str | None = None
     letterboxd_session: str | None = None
+    dashboard_timeout_seconds: float = 10.0
+    recent_activity_timeout_seconds: float = 10.0
+    recommendation_build_timeout_seconds: float = 120.0
     model_config = SettingsConfigDict(
         env_file=".env",
         env_prefix="",

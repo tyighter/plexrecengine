@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 
 from dotenv import set_key
@@ -29,6 +30,10 @@ app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
 ENV_PATH = Path(".env")
 LOGGER = get_generate_logger()
 
+RECENT_CACHE_TTL_SECONDS = 300
+RECENT_ACTIVITY_CACHE: dict[str, object] = {"data": None, "timestamp": 0.0}
+RECENT_CACHE_LOCK = asyncio.Lock()
+
 
 class TmdbKeyRequest(BaseModel):
     apiKey: str
@@ -48,6 +53,43 @@ def _serialize_recent(item, poster_url):
     }
 
 
+def _is_recent_cache_fresh() -> bool:
+    return (time.time() - RECENT_ACTIVITY_CACHE["timestamp"]) < RECENT_CACHE_TTL_SECONDS
+
+
+async def _fetch_recent_activity() -> dict[str, list[dict[str, object]]]:
+    def fetch_recent():
+        plex = get_plex_service()
+        return {
+            "recent_movies": [
+                _serialize_recent(item, plex.poster_url)
+                for item in plex.recently_watched_movies(days=30, max_results=200)
+            ],
+            "recent_shows": [
+                _serialize_recent(item, plex.poster_url)
+                for item in plex.recently_watched_shows(days=30, max_results=200)
+            ],
+        }
+
+    return await asyncio.to_thread(fetch_recent)
+
+
+async def refresh_recent_cache(force: bool = False) -> dict[str, list[dict[str, object]]]:
+    async with RECENT_CACHE_LOCK:
+        if not force and RECENT_ACTIVITY_CACHE["data"] and _is_recent_cache_fresh():
+            return RECENT_ACTIVITY_CACHE["data"]  # type: ignore[return-value]
+
+        data = await _fetch_recent_activity()
+        RECENT_ACTIVITY_CACHE["data"] = data
+        RECENT_ACTIVITY_CACHE["timestamp"] = time.time()
+        return data
+
+
+def invalidate_recent_cache() -> None:
+    RECENT_ACTIVITY_CACHE["timestamp"] = 0.0
+    RECENT_ACTIVITY_CACHE["data"] = None
+
+
 @app.on_event("startup")
 async def startup_build_collections():
     if not settings.is_plex_configured or not settings.tmdb_api_key:
@@ -63,6 +105,8 @@ async def startup_build_collections():
     # Run the expensive collection refresh in the background so startup
     # doesn't block the first page load after configuration.
     asyncio.create_task(asyncio.to_thread(build_collections))
+    if settings.is_plex_configured:
+        asyncio.create_task(refresh_recent_cache())
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -91,20 +135,16 @@ async def recent_activity():
     if not settings.is_plex_configured:
         return {"recent_movies": [], "recent_shows": []}
 
-    def fetch_recent():
-        plex = get_plex_service()
-        return {
-            "recent_movies": [
-                _serialize_recent(item, plex.poster_url)
-                for item in plex.recently_watched_movies(days=30, max_results=200)
-            ],
-            "recent_shows": [
-                _serialize_recent(item, plex.poster_url)
-                for item in plex.recently_watched_shows(days=30, max_results=200)
-            ],
-        }
+    if RECENT_ACTIVITY_CACHE["data"] and _is_recent_cache_fresh():
+        return RECENT_ACTIVITY_CACHE["data"]
 
-    return await asyncio.to_thread(fetch_recent)
+    try:
+        return await refresh_recent_cache(force=True)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.exception("Failed to refresh recent activity; returning stale cache if available")
+        if RECENT_ACTIVITY_CACHE["data"]:
+            return RECENT_ACTIVITY_CACHE["data"]
+        raise HTTPException(status_code=500, detail="Failed to fetch recent activity") from exc
 
 
 @app.post("/api/plex/login/start")
@@ -152,6 +192,7 @@ async def set_tmdb_api_key(payload: TmdbKeyRequest):
 @app.post("/webhook")
 async def webhook_trigger():
     if settings.is_plex_configured:
+        invalidate_recent_cache()
         plex = get_plex_service()
         letterboxd = get_letterboxd_client()
         engine = RecommendationEngine(plex, letterboxd)

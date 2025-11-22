@@ -96,22 +96,6 @@
                 <button id="open-settings" role="button">Open Sign-In &amp; API Settings</button>
             </div>
         </div>
-        <section id="library-selection" aria-label="Library preferences" {% if not settings.is_plex_configured %}hidden{% endif %} data-current-movie="{{ settings.plex_movie_library }}" data-current-show="{{ settings.plex_show_library }}">
-            <p><strong>Choose Plex libraries</strong></p>
-            <p class="muted">Pick which libraries should store movie and TV recommendations. We will remember your choices in <code>.env</code>.</p>
-            <div class="grid-two-column">
-                <label for="movie-library">Movie library
-                    <select id="movie-library" name="movie-library"></select>
-                </label>
-                <label for="show-library">TV library
-                    <select id="show-library" name="show-library"></select>
-                </label>
-            </div>
-            <footer>
-                <button id="save-libraries" role="button">Save Libraries</button>
-                <p id="library-status" class="muted"></p>
-            </footer>
-        </section>
     </header>
 
     <section>
@@ -157,6 +141,26 @@
             <button id="start-login" role="button">Start Plex Sign In</button>
             <p id="login-status" class="muted"></p>
         </section>
+        <section id="library-selection" aria-label="Library preferences" {% if not settings.is_plex_configured %}hidden{% endif %} data-current-movie="{{ settings.plex_movie_library }}" data-current-show="{{ settings.plex_show_library }}" data-current-user="{{ settings.plex_user_id or '' }}">
+            <p><strong>Plex preferences</strong></p>
+            <p class="muted">Choose which libraries store recommendations and (optionally) filter history to a specific Plex user ID.</p>
+            <div class="grid-two-column">
+                <label for="movie-library">Movie library
+                    <select id="movie-library" name="movie-library"></select>
+                </label>
+                <label for="show-library">TV library
+                    <select id="show-library" name="show-library"></select>
+                </label>
+                <label for="plex-user-id">Plex user ID (optional)
+                    <input id="plex-user-id" name="plex-user-id" type="text" placeholder="Leave blank to include all users" />
+                    <small class="muted">Find this in Plex account settings or server logs; we store it locally.</small>
+                </label>
+            </div>
+            <footer>
+                <button id="save-libraries" role="button">Save Preferences</button>
+                <p id="library-status" class="muted"></p>
+            </footer>
+        </section>
         <section id="tmdb-config" aria-label="TMDB configuration">
             <p><strong>TMDB API Key</strong> {% if settings.tmdb_api_key %}<span class="muted">Configured</span>{% else %}<span class="muted">Not configured</span>{% endif %}</p>
             <p class="muted">We use TMDB to fetch metadata and recommendations. Store your key locally for reuse.</p>
@@ -180,11 +184,16 @@
     const librarySection = document.getElementById('library-selection');
     const movieSelect = document.getElementById('movie-library');
     const showSelect = document.getElementById('show-library');
+    const plexUserInput = document.getElementById('plex-user-id');
     const saveLibrariesButton = document.getElementById('save-libraries');
     const libraryStatus = document.getElementById('library-status');
     const currentMovieLibrary = librarySection?.dataset.currentMovie;
     const currentShowLibrary = librarySection?.dataset.currentShow;
+    const currentUserId = librarySection?.dataset.currentUser;
     const isPlexConfigured = "{{ 'true' if settings.is_plex_configured else 'false' }}" === "true";
+    if (plexUserInput && currentUserId !== undefined) {
+        plexUserInput.value = currentUserId || '';
+    }
 
     const settingsDialog = document.getElementById('settings-dialog');
     const openSettings = document.getElementById('open-settings');
@@ -428,9 +437,9 @@
     });
 
     saveLibrariesButton?.addEventListener('click', async () => {
-        libraryStatus.textContent = 'Saving library preferences...';
+        libraryStatus.textContent = 'Saving Plex preferences...';
         try {
-            const response = await fetch('/api/plex/libraries', {
+            const response = await fetch('/api/plex/preferences', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -438,22 +447,30 @@
                 body: JSON.stringify({
                     movieLibrary: movieSelect.value,
                     showLibrary: showSelect.value,
+                    plexUserId: plexUserInput?.value ?? '',
                 }),
             });
             if (!response.ok) {
                 const error = await response.json();
-                libraryStatus.textContent = error?.detail || 'Unable to save libraries.';
+                libraryStatus.textContent = error?.detail || 'Unable to save preferences.';
                 return;
             }
-            libraryStatus.textContent = 'Saved libraries. Reload to apply changes.';
+            const saved = await response.json();
+            if (librarySection) {
+                librarySection.dataset.currentUser = saved.plex_user_id || '';
+            }
+            libraryStatus.textContent = 'Saved preferences. Reload to apply changes.';
         } catch (err) {
-            libraryStatus.textContent = 'Failed to save libraries.';
+            libraryStatus.textContent = 'Failed to save preferences.';
         }
     });
 
     openSettings?.addEventListener('click', () => {
         tmdbInput.value = '';
         tmdbInlineStatus.textContent = '';
+        if (plexUserInput && librarySection) {
+            plexUserInput.value = librarySection.dataset.currentUser || '';
+        }
         settingsDialog.showModal();
     });
 

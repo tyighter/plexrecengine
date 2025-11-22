@@ -27,7 +27,11 @@ def persist_keys(**updates: object):
     KEYS_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     existing = load_keys()
-    existing.update({k: v for k, v in updates.items() if v})
+    for key, value in updates.items():
+        if value is None:
+            existing.pop(key, None)
+        else:
+            existing[key] = value
 
     KEYS_PATH.write_text(yaml.safe_dump(existing, sort_keys=True))
 
@@ -37,12 +41,15 @@ def persist_keys(**updates: object):
         "plex_library_names": "PLEX_LIBRARY_NAMES",
         "plex_movie_library": "PLEX_MOVIE_LIBRARY",
         "plex_show_library": "PLEX_SHOW_LIBRARY",
+        "plex_user_id": "PLEX_USER_ID",
         "tmdb_api_key": "TMDB_API_KEY",
     }
 
     for key, env_name in env_mappings.items():
         value = existing.get(key)
-        if isinstance(value, list):
+        if value is None:
+            os.environ.pop(env_name, None)
+        elif isinstance(value, list):
             os.environ[env_name] = ",".join(map(str, value))
-        elif value:
+        else:
             os.environ[env_name] = str(value)

@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     plex_library_names: List[str] | None = None
     plex_movie_library: Optional[str] = None
     plex_show_library: Optional[str] = None
+    plex_user_id: str | None = None
     tmdb_api_key: str | None = None
     letterboxd_session: str | None = None
     model_config = SettingsConfigDict(

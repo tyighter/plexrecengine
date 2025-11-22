@@ -124,19 +124,27 @@ def _collect_library_names(server: PlexServer) -> Dict[str, List[str]]:
     return names
 
 
-def _persist_settings(base_url: str, token: str, movie_library: str, show_library: str):
+def _persist_settings(
+    base_url: str,
+    token: str,
+    movie_library: str,
+    show_library: str,
+    plex_user_id: str | None = None,
+):
     ENV_PATH.touch(exist_ok=True)
     set_key(str(ENV_PATH), "PLEX_BASE_URL", base_url)
     set_key(str(ENV_PATH), "PLEX_TOKEN", token)
     set_key(str(ENV_PATH), "PLEX_LIBRARY_NAMES", ",".join([movie_library, show_library]))
     set_key(str(ENV_PATH), "PLEX_MOVIE_LIBRARY", movie_library)
     set_key(str(ENV_PATH), "PLEX_SHOW_LIBRARY", show_library)
+    set_key(str(ENV_PATH), "PLEX_USER_ID", plex_user_id or "")
     persist_keys(
         plex_base_url=base_url,
         plex_token=token,
         plex_library_names=[movie_library, show_library],
         plex_movie_library=movie_library,
         plex_show_library=show_library,
+        plex_user_id=plex_user_id or None,
     )
     save_config(
         {
@@ -145,6 +153,7 @@ def _persist_settings(base_url: str, token: str, movie_library: str, show_librar
             "PLEX_LIBRARY_NAMES": [movie_library, show_library],
             "PLEX_MOVIE_LIBRARY": movie_library,
             "PLEX_SHOW_LIBRARY": show_library,
+            "PLEX_USER_ID": plex_user_id or None,
         }
     )
     settings.plex_base_url = base_url
@@ -152,12 +161,14 @@ def _persist_settings(base_url: str, token: str, movie_library: str, show_librar
     settings.plex_library_names = [movie_library, show_library]
     settings.plex_movie_library = movie_library
     settings.plex_show_library = show_library
+    settings.plex_user_id = plex_user_id or None
     LOGGER.debug(
         "Persisted Plex settings",
         extra={
             "base_url": base_url,
             "movie_library": movie_library,
             "show_library": show_library,
+            "plex_user_id": plex_user_id,
             "env_path": str(ENV_PATH),
         },
     )
@@ -187,20 +198,21 @@ def list_available_libraries() -> Dict[str, List[str]]:
         raise RuntimeError("Unable to load libraries from Plex") from exc
 
 
-def save_library_preferences(movie_library: str, show_library: str):
+def save_library_preferences(movie_library: str, show_library: str, plex_user_id: str | None = None):
     if not settings.is_plex_configured:
         raise RuntimeError("Plex must be configured before updating libraries")
 
     available = list_available_libraries()
     movie = _validate_library_choice(movie_library, available, media_type="movie")
     show = _validate_library_choice(show_library, available, media_type="show")
+    user_id = (plex_user_id or "").strip() or None
 
-    _persist_settings(str(settings.plex_base_url), str(settings.plex_token), movie, show)
+    _persist_settings(str(settings.plex_base_url), str(settings.plex_token), movie, show, user_id)
     LOGGER.info(
         "Updated Plex library preferences",
-        extra={"movie_library": movie, "show_library": show},
+        extra={"movie_library": movie, "show_library": show, "plex_user_id": user_id},
     )
-    return {"movie": movie, "show": show}
+    return {"movie": movie, "show": show, "plex_user_id": user_id}
 
 
 def check_login(pin_id: str) -> PlexLoginStatus:
@@ -254,7 +266,13 @@ def check_login(pin_id: str) -> PlexLoginStatus:
     movie_library = _validate_library_choice(settings.plex_movie_library, libraries, media_type="movie")
     show_library = _validate_library_choice(settings.plex_show_library, libraries, media_type="show")
     base_url = server.url("") if callable(getattr(server, "url", None)) else str(server.url)
-    _persist_settings(base_url, pin_login.token, movie_library, show_library)
+    _persist_settings(
+        base_url,
+        pin_login.token,
+        movie_library,
+        show_library,
+        settings.plex_user_id,
+    )
     LOGGER.info(
         "Plex login authorized",
         extra={

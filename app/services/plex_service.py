@@ -22,6 +22,7 @@ class PlexService:
                 "base_url": str(settings.plex_base_url),
                 "movie_library": settings.plex_movie_library,
                 "show_library": settings.plex_show_library,
+                "plex_user_id": settings.plex_user_id,
             },
         )
 
@@ -31,6 +32,17 @@ class PlexService:
             "mindate": cutoff,
             "maxresults": limit,
         }
+
+        if settings.plex_user_id:
+            kwargs["accountID"] = settings.plex_user_id
+            LOGGER.debug(
+                "Filtering Plex history by user",
+                extra={
+                    "section": getattr(section, "title", None),
+                    "account_id": settings.plex_user_id,
+                    "cutoff": cutoff.isoformat(),
+                },
+            )
 
         return kwargs
 

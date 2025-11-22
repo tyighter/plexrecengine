@@ -15,11 +15,16 @@ Create a `.env` file with your Plex and metadata keys:
 PLEX_BASE_URL=http://<your-plex-host>:32400
 PLEX_TOKEN=<plex-token>
 PLEX_LIBRARY_NAMES=Movies,TV Shows
+PLEX_USER_ID=<optional-plex-account-id>
 TMDB_API_KEY=<tmdb-api-key>
 LETTERBOXD_SESSION=<optional-letterboxd-session-cookie>
 ```
 
 > The recommendation engine expects Plex GUIDs to include TMDB IDs (e.g., `tmdb://12345`).
+> If your server has multiple users, set `PLEX_USER_ID` to the Plex Account ID you want to
+> monitor so history is filtered to that user. Leave it unset to include all users.
+> You can also configure Plex libraries and the optional user filter from the web dashboard
+> in the **Sign-In & API Settings** modal.
 
 ## Run with Docker Compose
 

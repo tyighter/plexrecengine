@@ -71,7 +71,14 @@ class RecommendationEngine:
         if source_profile is None:
             SCORING_LOGGER.info("No profile available; skipping scoring for this item")
             return []
-        related = self.letterboxd.search_related(source_profile, limit=20)
+        related = list(self.letterboxd.search_related(source_profile, limit=20))
+        SCORING_LOGGER.info(
+            "Initial related pool (%s): %s",
+            len(related),
+            ", ".join(
+                f"{candidate.title} (tmdb_id={candidate.tmdb_id})" for candidate in related
+            ),
+        )
         scored = self._score_related(source_profile, related)
         if not scored:
             SCORING_LOGGER.info("No related titles produced non-zero scores")
@@ -86,40 +93,70 @@ class RecommendationEngine:
                     breakdown,
                 )
         recommendations: List[Recommendation] = []
+        skipped_not_in_library: list[str] = []
         for profile, score, breakdown in scored[: count * 2]:
             # try to find an unwatched matching item in Plex
-            for plex_item in self.plex.search_unwatched(section_type=media_type, query=profile.title):
-                reason_parts = [
-                    "Recommended because you recently watched",
-                    source_label or "a similar title",
-                ]
-                if profile.letterboxd_rating:
-                    reason_parts.append(
-                        f"and it pairs well with {profile.title} (Letterboxd {profile.letterboxd_rating:.1f})"
-                    )
-                else:
-                    reason_parts.append(f"and it pairs well with {profile.title}")
-                reason_parts.append(f"Similarity score: {score:.2f}")
-                recommendations.append(
-                    Recommendation(
-                        title=plex_item.title,
-                        score=score,
-                        poster=self.plex.poster_url(plex_item),
-                        rating_key=plex_item.ratingKey,
-                        letterboxd_rating=profile.letterboxd_rating,
-                        source_title=source_title,
-                        reason=". ".join(reason_parts),
-                        score_breakdown=breakdown,
-                    )
-                )
+            plex_matches = list(
+                self.plex.search_unwatched(section_type=media_type, query=profile.title)
+            )
+            if not plex_matches:
+                skipped_not_in_library.append(profile.title)
                 SCORING_LOGGER.info(
-                    "Selected Plex item '%s' for recommendation (score=%.2f)",
-                    plex_item.title,
-                    score,
+                    "Skipping %s (tmdb_id=%s) — not found as unwatched in Plex library",
+                    profile.title,
+                    profile.tmdb_id,
                 )
-                break
+                continue
+
+            plex_item = plex_matches[0]
+            reason_parts = [
+                "Recommended because you recently watched",
+                source_label or "a similar title",
+            ]
+            if profile.letterboxd_rating:
+                reason_parts.append(
+                    f"and it pairs well with {profile.title} (Letterboxd {profile.letterboxd_rating:.1f})"
+                )
+            else:
+                reason_parts.append(f"and it pairs well with {profile.title}")
+            reason_parts.append(f"Similarity score: {score:.2f}")
+            recommendations.append(
+                Recommendation(
+                    title=plex_item.title,
+                    score=score,
+                    poster=self.plex.poster_url(plex_item),
+                    rating_key=plex_item.ratingKey,
+                    letterboxd_rating=profile.letterboxd_rating,
+                    source_title=source_title,
+                    reason=". ".join(reason_parts),
+                    score_breakdown=breakdown,
+                )
+            )
+            SCORING_LOGGER.info(
+                "Selected Plex item '%s' for recommendation (score=%.2f) breakdown=%s",
+                plex_item.title,
+                score,
+                breakdown,
+            )
             if len(recommendations) >= count:
                 break
+
+        if skipped_not_in_library:
+            SCORING_LOGGER.info(
+                "Removed %s candidates not present in Plex: %s",
+                len(skipped_not_in_library),
+                ", ".join(skipped_not_in_library),
+            )
+
+        if recommendations:
+            top_selected = sorted(recommendations, key=lambda rec: rec.score, reverse=True)[:3]
+            SCORING_LOGGER.info(
+                "Top %s selected Plex matches: %s",
+                len(top_selected),
+                ", ".join(
+                    f"{rec.title} (score={rec.score:.2f})" for rec in top_selected
+                ),
+            )
         return recommendations
 
     def _resolve_conflicts(

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from dotenv import set_key
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
@@ -47,6 +47,7 @@ RECOMMENDATION_CACHE: dict[str, object] = {
     "timestamp": 0.0,
 }
 RECOMMENDATION_CACHE_LOCK = asyncio.Lock()
+RECOMMENDATION_REBUILD_TASK: asyncio.Task | None = None
 
 
 @app.middleware("http")
@@ -173,6 +174,20 @@ def _extract_recent_keys(data: dict[str, list[dict[str, object]]] | None) -> set
     return keys
 
 
+def _is_rebuild_running() -> bool:
+    return RECOMMENDATION_REBUILD_TASK is not None and not RECOMMENDATION_REBUILD_TASK.done()
+
+
+async def _get_cached_recommendations() -> dict[str, object] | None:
+    async with RECOMMENDATION_CACHE_LOCK:
+        if RECOMMENDATION_CACHE["movies"] or RECOMMENDATION_CACHE["shows"]:
+            return {
+                "movies": RECOMMENDATION_CACHE["movies"],
+                "shows": RECOMMENDATION_CACHE["shows"],
+            }
+    return None
+
+
 async def _generate_recommendations(force: bool = False) -> dict[str, object]:
     async with RECOMMENDATION_CACHE_LOCK:
         if not force and RECOMMENDATION_CACHE["movies"] and RECOMMENDATION_CACHE["shows"]:
@@ -181,17 +196,33 @@ async def _generate_recommendations(force: bool = False) -> dict[str, object]:
                 "shows": RECOMMENDATION_CACHE["shows"],
             }
 
-        def build_recommendations():
-            plex = get_plex_service()
-            letterboxd = get_letterboxd_client()
-            engine = RecommendationEngine(plex, letterboxd)
-            return engine.build_movie_collection(), engine.build_show_collection()
+    def build_recommendations():
+        plex = get_plex_service()
+        letterboxd = get_letterboxd_client()
+        engine = RecommendationEngine(plex, letterboxd)
+        return engine.build_movie_collection(), engine.build_show_collection()
 
-        movies, shows = await asyncio.to_thread(build_recommendations)
+    movies, shows = await asyncio.to_thread(build_recommendations)
+    async with RECOMMENDATION_CACHE_LOCK:
         RECOMMENDATION_CACHE["movies"] = [m.__dict__ for m in movies]
         RECOMMENDATION_CACHE["shows"] = [s.__dict__ for s in shows]
         RECOMMENDATION_CACHE["timestamp"] = time.time()
         return {"movies": RECOMMENDATION_CACHE["movies"], "shows": RECOMMENDATION_CACHE["shows"]}
+
+
+def _schedule_recommendation_rebuild(force: bool = False) -> bool:
+    global RECOMMENDATION_REBUILD_TASK
+    if _is_rebuild_running():
+        return True
+
+    async def _run_rebuild():
+        try:
+            await _generate_recommendations(force=force)
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Background recommendation rebuild failed")
+
+    RECOMMENDATION_REBUILD_TASK = asyncio.create_task(_run_rebuild())
+    return True
 
 
 async def _watch_recent_activity():
@@ -212,7 +243,7 @@ async def _watch_recent_activity():
                     "Detected %s new recently watched items; rebuilding recommendations",
                     len(new_keys),
                 )
-                await _generate_recommendations(force=True)
+                _schedule_recommendation_rebuild(force=True)
         except Exception:  # noqa: BLE001
             LOGGER.exception("Background recent activity watcher failed")
         await asyncio.sleep(120)
@@ -261,10 +292,13 @@ async def dashboard(request: Request):
     if settings.is_plex_configured and settings.tmdb_api_key:
         try:
             cached_recs = await asyncio.wait_for(
-                _generate_recommendations(), timeout=settings.dashboard_timeout_seconds
+                _get_cached_recommendations(), timeout=settings.dashboard_timeout_seconds
             )
-            movies = cached_recs.get("movies", []) if cached_recs else []
-            shows = cached_recs.get("shows", []) if cached_recs else []
+            if cached_recs:
+                movies = cached_recs.get("movies", []) if cached_recs else []
+                shows = cached_recs.get("shows", []) if cached_recs else []
+            else:
+                _schedule_recommendation_rebuild(force=True)
         except asyncio.TimeoutError:
             LOGGER.warning(
                 "Timed out loading cached recommendations for dashboard; rendering placeholders"
@@ -413,7 +447,7 @@ async def webhook_trigger():
         engine = RecommendationEngine(plex, letterboxd)
         engine.build_movie_collection()
         engine.build_show_collection()
-        await _generate_recommendations(force=True)
+        _schedule_recommendation_rebuild(force=True)
         return {"status": "ok"}
     return {"status": "skipped", "reason": "Plex is not configured"}
 
@@ -428,27 +462,28 @@ async def build_recommendations():
         LOGGER.warning("TMDB API key missing; rejecting recommendation request")
         raise HTTPException(status_code=400, detail="TMDB API key is missing")
 
-    try:
-        recommendations = await asyncio.wait_for(
-            _generate_recommendations(force=True),
-            timeout=settings.recommendation_build_timeout_seconds,
-        )
+    LOGGER.info("Scheduling background recommendation rebuild")
+    _schedule_recommendation_rebuild(force=True)
+
+    cached_recommendations = await _get_cached_recommendations()
+    if cached_recommendations:
         LOGGER.info(
-            "Recommendation generation complete",
+            "Returning cached recommendations while rebuild runs",
             extra={
-                "movies": len(recommendations.get("movies", [])),
-                "shows": len(recommendations.get("shows", [])),
+                "movies": len(cached_recommendations.get("movies", [])),
+                "shows": len(cached_recommendations.get("shows", [])),
+                "status": "rebuilding" if _is_rebuild_running() else "ready",
             },
         )
-        return recommendations
-    except asyncio.TimeoutError as exc:
-        LOGGER.warning("Recommendation generation timed out")
-        raise HTTPException(status_code=504, detail="Recommendation generation timed out") from exc
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.exception("Unexpected error during recommendation generation")
-        raise HTTPException(status_code=500, detail="Failed to generate recommendations") from exc
+        status_code = 202 if _is_rebuild_running() else 200
+        return JSONResponse(cached_recommendations, status_code=status_code)
+
+    if _is_rebuild_running():
+        LOGGER.info("No cached recommendations available; rebuild pending")
+        return JSONResponse({"status": "pending"}, status_code=202)
+
+    LOGGER.error("Failed to schedule recommendation rebuild")
+    raise HTTPException(status_code=500, detail="Failed to schedule recommendations rebuild")
 
 
 @app.get("/api/recommendations")
@@ -456,9 +491,13 @@ async def cached_recommendations():
     if not settings.is_plex_configured or not settings.tmdb_api_key:
         return {"movies": [], "shows": []}
     try:
-        return await asyncio.wait_for(
-            _generate_recommendations(), timeout=settings.dashboard_timeout_seconds
+        cached = await asyncio.wait_for(
+            _get_cached_recommendations(), timeout=settings.dashboard_timeout_seconds
         )
+        if cached:
+            return cached
+        _schedule_recommendation_rebuild(force=True)
+        return {"movies": [], "shows": []}
     except asyncio.TimeoutError as exc:
         LOGGER.warning("Timed out returning cached recommendations")
         raise HTTPException(status_code=504, detail="Recommendation lookup timed out") from exc

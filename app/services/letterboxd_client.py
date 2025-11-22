@@ -3,12 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Set, Tuple
 
+import json
 import httpx
+import logging
+import re
 from bs4 import BeautifulSoup
 
 from app.config import settings
 
 TMDB_BASE = "https://api.themoviedb.org/3"
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -52,11 +58,15 @@ class LetterboxdClient:
 
     def _fetch_letterboxd_score(self, title: str, year: Optional[int]) -> Tuple[Optional[float], Optional[int]]:
         response = self.letterboxd.get("https://letterboxd.com/search/films/", params={"q": title})
+        if response.status_code == 403 or self._is_login_response(response):
+            logger.warning("Letterboxd search blocked (status=%s, url=%s)", response.status_code, response.url)
+            return None, None
         if response.status_code != 200:
             return None, None
         soup = BeautifulSoup(response.text, "html.parser")
         best_rating: Optional[float] = None
         best_votes: Optional[int] = None
+        candidate_slug: Optional[str] = None
         for li in soup.select("li[data-film-slug]"):
             try:
                 film_year = int(li.get("data-film-year") or 0)
@@ -64,6 +74,8 @@ class LetterboxdClient:
                 film_year = 0
             if year and film_year and abs(film_year - year) > 1:
                 continue
+            if candidate_slug is None:
+                candidate_slug = li.get("data-film-slug")
             rating_str = li.get("data-average-rating")
             votes_str = li.get("data-rating-count")
             if rating_str:
@@ -78,7 +90,96 @@ class LetterboxdClient:
                     best_votes = None
             if best_rating is not None:
                 break
+        if best_rating is None and candidate_slug:
+            logger.info("Falling back to film page scrape for '%s'", candidate_slug)
+            best_rating, best_votes = self._fetch_film_detail(candidate_slug)
         return best_rating, best_votes
+
+    def _fetch_film_detail(self, slug: str) -> Tuple[Optional[float], Optional[int]]:
+        film_url = f"https://letterboxd.com{slug}/"
+        response = self.letterboxd.get(film_url)
+        if response.status_code == 403 or self._is_login_response(response):
+            logger.warning("Letterboxd film page blocked (status=%s, url=%s)", response.status_code, response.url)
+            return None, None
+        if response.status_code != 200:
+            return None, None
+        soup = BeautifulSoup(response.text, "html.parser")
+        return self._extract_rating_from_film_page(soup)
+
+    def _extract_rating_from_film_page(self, soup: BeautifulSoup) -> Tuple[Optional[float], Optional[int]]:
+        rating = None
+        votes = None
+
+        for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+            try:
+                data = json.loads(script.string or "{}")
+            except json.JSONDecodeError:
+                continue
+            entries = data if isinstance(data, list) else [data]
+            for entry in entries:
+                aggregate = entry.get("aggregateRating") if isinstance(entry, dict) else None
+                if not aggregate or not isinstance(aggregate, dict):
+                    continue
+                rating = rating or self._parse_float(aggregate.get("ratingValue"))
+                votes = votes or self._parse_int(aggregate.get("ratingCount"))
+                if rating is not None:
+                    break
+            if rating is not None:
+                break
+
+        if rating is None:
+            rating_meta = soup.find("meta", attrs={"property": "letterboxd:filmRatingAverage"})
+            if rating_meta:
+                rating = self._parse_float(rating_meta.get("content"))
+        if votes is None:
+            votes_meta = soup.find("meta", attrs={"property": "letterboxd:filmRatingCount"})
+            if votes_meta:
+                votes = self._parse_int(votes_meta.get("content"))
+
+        if rating is None:
+            rating_meta = soup.find("meta", attrs={"name": "twitter:data1"})
+            if rating_meta:
+                rating = self._parse_float(rating_meta.get("content"))
+        if votes is None:
+            votes_meta = soup.find("meta", attrs={"name": "twitter:data2"})
+            if votes_meta:
+                votes = self._parse_int(votes_meta.get("content"))
+
+        if rating is None:
+            rating_node = soup.find(attrs={"data-rating": True})
+            if rating_node:
+                rating = self._parse_float(rating_node.get("data-rating"))
+        if votes is None:
+            votes_node = soup.find(attrs={"data-rating-count": True})
+            if votes_node:
+                votes = self._parse_int(votes_node.get("data-rating-count"))
+
+        return rating, votes
+
+    @staticmethod
+    def _parse_float(value: Optional[str]) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            cleaned = value.strip().split(" ")[0].replace("★", "")
+            return float(cleaned)
+        except (ValueError, AttributeError):
+            return None
+
+    @staticmethod
+    def _parse_int(value: Optional[str]) -> Optional[int]:
+        if value is None:
+            return None
+        try:
+            digits = re.sub(r"[^0-9]", "", value)
+            return int(digits) if digits else None
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _is_login_response(response: httpx.Response) -> bool:
+        url_str = str(response.url).lower()
+        return "sign-in" in url_str or "signin" in url_str or "login" in url_str
 
     def fetch_profile(self, tmdb_id: int, media_type: str) -> MediaProfile:
         details = self.client.get(f"/{media_type}/{tmdb_id}").json()

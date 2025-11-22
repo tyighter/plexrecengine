@@ -267,7 +267,7 @@ def save_library_preferences(movie_library: str, show_library: str, plex_user_id
         movie,
         show,
         user_id,
-        settings.tautulli_user_id,
+        user_id,
     )
     LOGGER.info(
         "Updated Plex library preferences",

@@ -58,6 +58,44 @@ class TautulliClient:
         LOGGER.debug("Loaded Tautulli users", extra={"count": len(users)})
         return users
 
+    def history(
+        self,
+        *,
+        media_type: str | None = None,
+        after: int | None = None,
+        limit: int = 200,
+        user_id: str | None = None,
+    ) -> list[dict[str, object]]:
+        params: dict[str, object] = {"length": limit}
+        if media_type:
+            params["media_type"] = media_type
+        if after:
+            params["after"] = after
+        if user_id:
+            params["user_id"] = user_id
+
+        raw_data = self._request("get_history", params)
+        entries: list[dict[str, object]] = []
+        if isinstance(raw_data, dict):
+            data_section = raw_data.get("records")
+            if data_section is None:
+                data_section = raw_data.get("data")
+            if isinstance(data_section, list):
+                entries = data_section
+        elif isinstance(raw_data, list):
+            entries = raw_data
+
+        records: list[dict[str, object]] = []
+        for entry in entries:
+            if isinstance(entry, dict):
+                records.append(entry)
+
+        LOGGER.debug(
+            "Loaded Tautulli history",
+            extra={"count": len(records), "media_type": media_type, "user_id": user_id},
+        )
+        return records
+
 
 def get_tautulli_client() -> TautulliClient:
     if not settings.is_tautulli_configured:

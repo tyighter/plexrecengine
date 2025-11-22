@@ -6,6 +6,7 @@ from plexapi.server import PlexServer
 
 from app.config import settings
 from app.services.plex_logging import get_plex_logger
+from app.services.tautulli_service import get_tautulli_client
 
 
 LOGGER = get_plex_logger()
@@ -121,9 +122,70 @@ class PlexService:
                 extra={"run_id": run_id, "sections": loaded_sections},
             )
 
+    def _tautulli_user_id(self) -> Optional[str]:
+        user_id = (settings.tautulli_user_id or settings.plex_user_id or "").strip()
+        return user_id or None
+
+    def _load_tautulli_history(
+        self, media_type: str, days: int, limit: int, user_id: Optional[str]
+    ):
+        if not settings.is_tautulli_configured:
+            return None
+        try:
+            client = get_tautulli_client()
+        except Exception:
+            LOGGER.exception("Failed to initialize Tautulli client")
+            return [] if user_id else None
+
+        try:
+            cutoff = datetime.now() - timedelta(days=days)
+            return client.history(
+                media_type=media_type,
+                after=int(cutoff.timestamp()),
+                limit=limit,
+                user_id=user_id,
+            )
+        except Exception:
+            LOGGER.exception(
+                "Failed to load history from Tautulli", extra={"media_type": media_type}
+            )
+            return [] if user_id else None
+
+    def _tautulli_timestamp(self, value) -> datetime:
+        try:
+            return datetime.fromtimestamp(int(value))
+        except Exception:
+            return datetime.min
+
     def recently_watched_movies(self, days: int = 30, max_results: Optional[int] = None):
         cutoff = datetime.now() - timedelta(days=days)
         limit = max_results or 200
+        tautulli_user_id = self._tautulli_user_id()
+        tautulli_history = self._load_tautulli_history("movie", days, limit, tautulli_user_id)
+        if tautulli_history is not None:
+            movies = []
+            seen_movie_keys = set()
+            for entry in tautulli_history:
+                rating_key = entry.get("rating_key") or entry.get("parent_rating_key")
+                if rating_key is None or rating_key in seen_movie_keys:
+                    continue
+                movie = self.fetch_item(rating_key)
+                if not movie or getattr(movie, "type", None) != "movie":
+                    continue
+                last_viewed = self._tautulli_timestamp(
+                    entry.get("last_played")
+                    or entry.get("date")
+                    or entry.get("stopped")
+                )
+                if last_viewed < cutoff:
+                    continue
+                seen_movie_keys.add(rating_key)
+                movies.append((movie, last_viewed))
+                if max_results and len(movies) >= max_results:
+                    break
+            movies.sort(key=lambda pair: pair[1], reverse=True)
+            return [item for item, _ in movies][: max_results or len(movies)]
+
         movies = []
         seen_movie_keys = set()
         for section in self._library_sections():
@@ -169,6 +231,43 @@ class PlexService:
     def recently_watched_shows(self, days: int = 30, max_results: Optional[int] = None):
         cutoff = datetime.now() - timedelta(days=days)
         limit = max_results or 200
+        tautulli_user_id = self._tautulli_user_id()
+        tautulli_history = self._load_tautulli_history("episode", days, limit, tautulli_user_id)
+        if tautulli_history is not None:
+            shows_with_dates = []
+            seen_show_keys = set()
+            for entry in tautulli_history:
+                rating_key = (
+                    entry.get("grandparent_rating_key")
+                    or entry.get("rating_key")
+                    or entry.get("parent_rating_key")
+                )
+                if rating_key is None or rating_key in seen_show_keys:
+                    continue
+                watched_at = self._tautulli_timestamp(
+                    entry.get("last_played")
+                    or entry.get("date")
+                    or entry.get("stopped")
+                )
+                if watched_at < cutoff:
+                    continue
+                item = self.fetch_item(rating_key)
+                if item is None:
+                    continue
+                if getattr(item, "type", None) == "episode":
+                    try:
+                        item = item.show()
+                    except Exception:
+                        continue
+                if getattr(item, "type", None) != "show":
+                    continue
+                seen_show_keys.add(rating_key)
+                shows_with_dates.append((item, watched_at))
+                if max_results and len(shows_with_dates) >= max_results:
+                    break
+            shows_with_dates.sort(key=lambda pair: pair[1], reverse=True)
+            return [item for item, _ in shows_with_dates][: max_results or len(shows_with_dates)]
+
         episodes = []
         seen_episode_keys = set()
         for section in self._library_sections():

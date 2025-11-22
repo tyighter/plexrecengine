@@ -17,6 +17,7 @@ from app.services.generate_logging import get_generate_logger
 from app.services.plex_auth import (
     check_login,
     list_available_libraries,
+    list_available_users,
     save_library_preferences,
     start_login,
 )
@@ -165,6 +166,16 @@ async def available_libraries():
         raise HTTPException(status_code=400, detail="Plex is not configured")
     try:
         return list_available_libraries()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/plex/users")
+async def available_users():
+    if not settings.is_plex_configured:
+        raise HTTPException(status_code=400, detail="Plex is not configured")
+    try:
+        return list_available_users()
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

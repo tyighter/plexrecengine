@@ -152,10 +152,12 @@
                     <select id="show-library" name="show-library"></select>
                 </label>
                 <label for="plex-user-id">Plex user ID (optional)
-                    <input id="plex-user-id" name="plex-user-id" type="text" placeholder="Leave blank to include all users" />
-                    <small class="muted">Find this in Plex account settings or server logs; we store it locally.</small>
+                    <input id="plex-user-id" name="plex-user-id" type="text" placeholder="Leave blank to include all users" list="plex-user-options" />
+                    <datalist id="plex-user-options"></datalist>
+                    <small class="muted">Pick from your Plex users or leave blank to include everyone.</small>
                 </label>
             </div>
+            <p id="plex-user-status" class="muted"></p>
             <footer>
                 <button id="save-libraries" role="button">Save Preferences</button>
                 <p id="library-status" class="muted"></p>
@@ -185,6 +187,8 @@
     const movieSelect = document.getElementById('movie-library');
     const showSelect = document.getElementById('show-library');
     const plexUserInput = document.getElementById('plex-user-id');
+    const plexUserOptions = document.getElementById('plex-user-options');
+    const plexUserStatus = document.getElementById('plex-user-status');
     const saveLibrariesButton = document.getElementById('save-libraries');
     const libraryStatus = document.getElementById('library-status');
     const currentMovieLibrary = librarySection?.dataset.currentMovie;
@@ -376,6 +380,50 @@
         populateSelect(showSelect, showLibraries.length ? showLibraries : [currentShowLibrary || 'TV Shows'], showSelect.value || currentShowLibrary);
     }
 
+    function populateUsers(users = []) {
+        if (!plexUserOptions) return;
+        plexUserOptions.innerHTML = '';
+
+        users.forEach((user) => {
+            if (!user?.id) return;
+            const opt = document.createElement('option');
+            opt.value = user.id;
+            const labelParts = [user.username, user.id].filter(Boolean);
+            opt.label = labelParts.join(' · ');
+            plexUserOptions.appendChild(opt);
+        });
+
+        if (plexUserStatus) {
+            if (users.length) {
+                plexUserStatus.textContent = 'Select your Plex user from the list or leave blank to include all users.';
+            } else {
+                plexUserStatus.textContent = 'No managed Plex users found; leave blank to include everyone.';
+            }
+        }
+    }
+
+    async function fetchAvailableUsers() {
+        if (!isPlexConfigured) return;
+        if (plexUserStatus) {
+            plexUserStatus.textContent = 'Loading Plex users...';
+        }
+        try {
+            const response = await fetch('/api/plex/users');
+            if (!response.ok) {
+                if (plexUserStatus) {
+                    plexUserStatus.textContent = 'Unable to load Plex users.';
+                }
+                return;
+            }
+            const users = await response.json();
+            populateUsers(Array.isArray(users) ? users : []);
+        } catch (err) {
+            if (plexUserStatus) {
+                plexUserStatus.textContent = 'Failed to load Plex users.';
+            }
+        }
+    }
+
     async function fetchAvailableLibraries() {
         if (!isPlexConfigured) return;
         libraryStatus.textContent = 'Loading libraries from Plex...';
@@ -388,6 +436,7 @@
             const data = await response.json();
             showLibraries(data, true);
             libraryStatus.textContent = 'Loaded libraries. Update and save to apply changes.';
+            fetchAvailableUsers();
         } catch (err) {
             libraryStatus.textContent = 'Failed to load libraries from Plex.';
         }
@@ -402,6 +451,7 @@
                     clearInterval(pollInterval);
                     statusEl.innerHTML = `Connected to ${data.serverName || 'Plex'} at <code>${data.baseUrl}</code>. Choose your libraries below, then reload the page to start generating recommendations.`;
                     showLibraries(data.libraries);
+                    fetchAvailableUsers();
                 } else if (data.status === 'invalid') {
                     clearInterval(pollInterval);
                     statusEl.textContent = 'Sign-in link is no longer valid. Please start again.';

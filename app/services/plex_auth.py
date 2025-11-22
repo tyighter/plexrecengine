@@ -124,6 +124,14 @@ def _collect_library_names(server: PlexServer) -> Dict[str, List[str]]:
     return names
 
 
+def _serialize_user(user) -> dict:
+    """Normalize Plex user objects for UI selection."""
+
+    user_id = str(getattr(user, "id", "") or "").strip()
+    username = getattr(user, "username", None) or getattr(user, "title", None) or getattr(user, "email", None)
+    return {"id": user_id, "username": username or user_id}
+
+
 def _persist_settings(
     base_url: str,
     token: str,
@@ -196,6 +204,46 @@ def list_available_libraries() -> Dict[str, List[str]]:
     except Exception as exc:
         LOGGER.exception("Unable to load libraries from Plex", extra={"error": str(exc)})
         raise RuntimeError("Unable to load libraries from Plex") from exc
+
+
+def list_available_users() -> list[dict]:
+    """Return Plex users available to the authenticated account.
+
+    Includes the primary account and any shared users so the UI can present a
+    reliable list of numeric account IDs.
+    """
+
+    if not settings.is_plex_configured:
+        LOGGER.info("Plex configuration missing; cannot list users")
+        return []
+    try:
+        server = PlexServer(str(settings.plex_base_url), settings.plex_token)
+        account = server.myPlexAccount()
+        LOGGER.debug(
+            "Connected to Plex to list users", extra={"base_url": str(settings.plex_base_url)}
+        )
+
+        users = []
+        if account:
+            users.append(_serialize_user(account))
+            for user in account.users():
+                users.append(_serialize_user(user))
+
+        # Remove duplicates while preserving order
+        seen_ids: set[str] = set()
+        unique_users = []
+        for user in users:
+            user_id = user.get("id", "")
+            if not user_id or user_id in seen_ids:
+                continue
+            seen_ids.add(user_id)
+            unique_users.append(user)
+
+        LOGGER.debug("Collected Plex users", extra={"count": len(unique_users)})
+        return unique_users
+    except Exception as exc:
+        LOGGER.exception("Unable to load users from Plex", extra={"error": str(exc)})
+        raise RuntimeError("Unable to load users from Plex") from exc
 
 
 def save_library_preferences(movie_library: str, show_library: str, plex_user_id: str | None = None):

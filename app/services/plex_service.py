@@ -126,14 +126,16 @@ class PlexService:
         user_id = (settings.tautulli_user_id or settings.plex_user_id or "").strip()
         return user_id or None
 
-    def _load_tautulli_history(self, media_type: str, days: int, limit: int):
+    def _load_tautulli_history(
+        self, media_type: str, days: int, limit: int, user_id: Optional[str]
+    ):
         if not settings.is_tautulli_configured:
             return None
         try:
             client = get_tautulli_client()
         except Exception:
             LOGGER.exception("Failed to initialize Tautulli client")
-            return None
+            return [] if user_id else None
 
         try:
             cutoff = datetime.now() - timedelta(days=days)
@@ -141,13 +143,13 @@ class PlexService:
                 media_type=media_type,
                 after=int(cutoff.timestamp()),
                 limit=limit,
-                user_id=self._tautulli_user_id(),
+                user_id=user_id,
             )
         except Exception:
             LOGGER.exception(
                 "Failed to load history from Tautulli", extra={"media_type": media_type}
             )
-            return None
+            return [] if user_id else None
 
     def _tautulli_timestamp(self, value) -> datetime:
         try:
@@ -158,7 +160,8 @@ class PlexService:
     def recently_watched_movies(self, days: int = 30, max_results: Optional[int] = None):
         cutoff = datetime.now() - timedelta(days=days)
         limit = max_results or 200
-        tautulli_history = self._load_tautulli_history("movie", days, limit)
+        tautulli_user_id = self._tautulli_user_id()
+        tautulli_history = self._load_tautulli_history("movie", days, limit, tautulli_user_id)
         if tautulli_history is not None:
             movies = []
             seen_movie_keys = set()
@@ -228,7 +231,8 @@ class PlexService:
     def recently_watched_shows(self, days: int = 30, max_results: Optional[int] = None):
         cutoff = datetime.now() - timedelta(days=days)
         limit = max_results or 200
-        tautulli_history = self._load_tautulli_history("episode", days, limit)
+        tautulli_user_id = self._tautulli_user_id()
+        tautulli_history = self._load_tautulli_history("episode", days, limit, tautulli_user_id)
         if tautulli_history is not None:
             shows_with_dates = []
             seen_show_keys = set()

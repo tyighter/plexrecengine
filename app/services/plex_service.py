@@ -501,16 +501,27 @@ class PlexService:
 
         random.shuffle(new_items)
 
-        for item in new_items:
-            item.addCollection(collection)
-            LOGGER.debug(
-                "Added item to Plex collection",
+        try:
+            collection.addItems(new_items)
+        except Exception:
+            LOGGER.exception(
+                "Failed to add items to Plex collection",
                 extra={
                     "collection": collection_name,
-                    "item_title": getattr(item, "title", None),
+                    "add_count": len(new_items),
                     "section": getattr(section, "title", None),
                 },
             )
+            return
+
+        LOGGER.debug(
+            "Added items to Plex collection",
+            extra={
+                "collection": collection_name,
+                "added_count": len(new_items),
+                "section": getattr(section, "title", None),
+            },
+        )
 
         LOGGER.debug(
             "Updated Plex collection members",

@@ -15,6 +15,8 @@ class Recommendation:
     poster: str | None
     rating_key: int
     letterboxd_rating: float | None = None
+    source_title: str | None = None
+    reason: str | None = None
 
 
 LOGGER = get_generate_logger()
@@ -51,16 +53,34 @@ class RecommendationEngine:
         scored.sort(key=lambda pair: pair[1], reverse=True)
         return scored
 
-    def top_recommendations_for_item(self, item, media_type: str, count: int = 3) -> List[Recommendation]:
+    def top_recommendations_for_item(
+        self, item, media_type: str, count: int = 3
+    ) -> List[Recommendation]:
         source_profile = self._profile_for_item(item, media_type)
         if source_profile is None:
             return []
         related = self.letterboxd.search_related(source_profile, limit=20)
         scored = self._score_related(source_profile, related)
+        source_title = getattr(item, "title", None)
+        source_year = getattr(item, "year", None)
+        source_label = (
+            f"{source_title} ({source_year})" if source_title and source_year else source_title
+        )
         recommendations: List[Recommendation] = []
         for profile, score in scored[:count * 2]:
             # try to find an unwatched matching item in Plex
             for plex_item in self.plex.search_unwatched(section_type=media_type, query=profile.title):
+                reason_parts = [
+                    "Recommended because you recently watched",
+                    source_label or "a similar title",
+                ]
+                if profile.letterboxd_rating:
+                    reason_parts.append(
+                        f"and it pairs well with {profile.title} (Letterboxd {profile.letterboxd_rating:.1f})"
+                    )
+                else:
+                    reason_parts.append(f"and it pairs well with {profile.title}")
+                reason_parts.append(f"Similarity score: {score:.2f}")
                 recommendations.append(
                     Recommendation(
                         title=plex_item.title,
@@ -68,6 +88,8 @@ class RecommendationEngine:
                         poster=self.plex.poster_url(plex_item),
                         rating_key=plex_item.ratingKey,
                         letterboxd_rating=profile.letterboxd_rating,
+                        source_title=source_title,
+                        reason=". ".join(reason_parts),
                     )
                 )
                 break

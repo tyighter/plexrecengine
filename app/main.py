@@ -183,9 +183,11 @@ async def available_users():
 @app.post("/api/plex/preferences")
 async def update_preferences(payload: PlexPreferences):
     try:
-        return save_library_preferences(
+        result = save_library_preferences(
             payload.movieLibrary, payload.showLibrary, payload.plexUserId
         )
+        invalidate_recent_cache()
+        return result
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

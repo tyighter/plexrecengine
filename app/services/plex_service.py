@@ -46,7 +46,6 @@ class PlexService:
             try:
                 history_entries = self.client.history(
                     librarySectionID=getattr(section, "key", None),
-                    type="movie",
                     mindate=cutoff,
                     maxresults=limit,
                 )
@@ -70,6 +69,10 @@ class PlexService:
 
             for entry in history_entries:
                 movie = getattr(entry, "item", entry)
+                entry_type = getattr(movie, "type", None) or getattr(entry, "type", None)
+                if entry_type and entry_type != "movie":
+                    continue
+
                 last_viewed = getattr(movie, "lastViewedAt", None) or getattr(entry, "viewedAt", None)
                 if last_viewed and last_viewed >= cutoff:
                     movies.append(movie)
@@ -98,7 +101,6 @@ class PlexService:
             try:
                 history_entries = self.client.history(
                     librarySectionID=getattr(section, "key", None),
-                    type="episode",
                     mindate=cutoff,
                     maxresults=limit,
                 )
@@ -122,6 +124,10 @@ class PlexService:
 
             for entry in history_entries:
                 episode = getattr(entry, "item", entry)
+                entry_type = getattr(episode, "type", None) or getattr(entry, "type", None)
+                if entry_type and entry_type != "episode":
+                    continue
+
                 last_viewed = getattr(episode, "lastViewedAt", None) or getattr(entry, "viewedAt", None)
                 if last_viewed and last_viewed >= cutoff:
                     episodes.append(episode)

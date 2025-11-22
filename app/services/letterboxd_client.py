@@ -164,15 +164,20 @@ def _letterboxd_score(rating: Optional[float]) -> float:
     return 1.0 + slope * (rating - 2.1)
 
 
-def profile_similarity(source: MediaProfile, target: MediaProfile) -> float:
-    score = 0.0
-    score += 10.0 * len(source.cast & target.cast)
-    score += 30.0 * len(source.directors & target.directors)
-    score += 20.0 * len(source.writers & target.writers)
-    score += 10.0 * len(source.genres & target.genres)
-    score += 10.0 * len(source.keywords & target.keywords)
-    score += _letterboxd_score(target.letterboxd_rating)
-    return round(score, 2)
+def profile_similarity(
+    source: MediaProfile, target: MediaProfile
+) -> tuple[float, dict[str, float]]:
+    breakdown = {
+        "cast": 10.0 * len(source.cast & target.cast),
+        "directors": 30.0 * len(source.directors & target.directors),
+        "writers": 20.0 * len(source.writers & target.writers),
+        "genres": 10.0 * len(source.genres & target.genres),
+        "keywords": 10.0 * len(source.keywords & target.keywords),
+        "letterboxd_rating": _letterboxd_score(target.letterboxd_rating),
+    }
+    total = round(sum(breakdown.values()), 2)
+    normalized_breakdown = {key: round(value, 2) for key, value in breakdown.items()}
+    return total, normalized_breakdown
 
 
 def get_letterboxd_client() -> LetterboxdClient:

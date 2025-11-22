@@ -17,6 +17,7 @@ class Recommendation:
     letterboxd_rating: float | None = None
     source_title: str | None = None
     reason: str | None = None
+    score_breakdown: dict[str, float] | None = None
 
 
 LOGGER = get_generate_logger()
@@ -42,14 +43,16 @@ class RecommendationEngine:
             return None
         return self.letterboxd.fetch_profile(tmdb_id, media_type)
 
-    def _score_related(self, source_profile: MediaProfile, candidates: Iterable[MediaProfile]) -> List[Tuple[MediaProfile, float]]:
+    def _score_related(
+        self, source_profile: MediaProfile, candidates: Iterable[MediaProfile]
+    ) -> List[Tuple[MediaProfile, float, dict[str, float]]]:
         scored = []
         for candidate in candidates:
             if candidate.tmdb_id == source_profile.tmdb_id:
                 continue
-            score = profile_similarity(source_profile, candidate)
+            score, breakdown = profile_similarity(source_profile, candidate)
             if score > 0:
-                scored.append((candidate, score))
+                scored.append((candidate, score, breakdown))
         scored.sort(key=lambda pair: pair[1], reverse=True)
         return scored
 
@@ -67,7 +70,7 @@ class RecommendationEngine:
             f"{source_title} ({source_year})" if source_title and source_year else source_title
         )
         recommendations: List[Recommendation] = []
-        for profile, score in scored[:count * 2]:
+        for profile, score, breakdown in scored[:count * 2]:
             # try to find an unwatched matching item in Plex
             for plex_item in self.plex.search_unwatched(section_type=media_type, query=profile.title):
                 reason_parts = [
@@ -90,6 +93,7 @@ class RecommendationEngine:
                         letterboxd_rating=profile.letterboxd_rating,
                         source_title=source_title,
                         reason=". ".join(reason_parts),
+                        score_breakdown=breakdown,
                     )
                 )
                 break

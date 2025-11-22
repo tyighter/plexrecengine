@@ -61,6 +61,13 @@
         .poster-tooltip p {
             margin: 0.15rem 0;
         }
+        .score-breakdown {
+            margin: 0.35rem 0 0;
+            padding-left: 1.25rem;
+        }
+        .score-breakdown li {
+            margin: 0.15rem 0;
+        }
         .poster-card:hover .poster-tooltip,
         .poster-card:focus-within .poster-tooltip {
             opacity: 1;
@@ -229,6 +236,32 @@
             const source = document.createElement('p');
             source.className = 'muted';
             source.textContent = item.source_title ? `Triggered by: ${item.source_title}` : 'Triggered by a recent watch.';
+            if (item.score_breakdown && Object.keys(item.score_breakdown).length) {
+                const breakdownTitle = document.createElement('p');
+                breakdownTitle.innerHTML = '<strong>Score breakdown</strong>';
+                const breakdownList = document.createElement('ul');
+                breakdownList.className = 'score-breakdown';
+                const labels = [
+                    ['cast', 'Cast overlap'],
+                    ['directors', 'Director match'],
+                    ['writers', 'Writer match'],
+                    ['genres', 'Genre match'],
+                    ['keywords', 'Keyword match'],
+                    ['letterboxd_rating', 'Letterboxd bonus'],
+                ];
+                labels.forEach(([key, label]) => {
+                    const value = item.score_breakdown[key];
+                    if (value === undefined || value === null) return;
+                    if (Math.abs(value) < 0.01) return;
+                    const entry = document.createElement('li');
+                    entry.textContent = `${label}: ${value.toFixed(2)}`;
+                    breakdownList.appendChild(entry);
+                });
+                if (breakdownList.children.length) {
+                    tooltip.appendChild(breakdownTitle);
+                    tooltip.appendChild(breakdownList);
+                }
+            }
             tooltip.appendChild(reasonTitle);
             tooltip.appendChild(reason);
             tooltip.appendChild(source);

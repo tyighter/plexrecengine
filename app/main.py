@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from app.keys_store import persist_keys
 from app.config import save_config, settings
+from app.services.generate_logging import get_generate_logger
 from app.services.plex_auth import (
     check_login,
     list_available_libraries,
@@ -26,6 +27,7 @@ app = FastAPI(title="Plex Recommendation Engine")
 templates = Jinja2Templates(directory="app/web/templates")
 app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
 ENV_PATH = Path(".env")
+LOGGER = get_generate_logger()
 
 
 class TmdbKeyRequest(BaseModel):
@@ -143,17 +145,31 @@ async def webhook_trigger():
 
 @app.post("/api/recommendations")
 async def build_recommendations():
+    LOGGER.info("Received request to build recommendations")
     if not settings.is_plex_configured:
+        LOGGER.warning("Plex configuration missing; rejecting recommendation request")
         raise HTTPException(status_code=400, detail="Plex is not configured")
     if not settings.tmdb_api_key:
+        LOGGER.warning("TMDB API key missing; rejecting recommendation request")
         raise HTTPException(status_code=400, detail="TMDB API key is missing")
 
-    plex = get_plex_service()
-    letterboxd = get_letterboxd_client()
-    engine = RecommendationEngine(plex, letterboxd)
-    movies = engine.build_movie_collection()
-    shows = engine.build_show_collection()
-    return {
-        "movies": [m.__dict__ for m in movies],
-        "shows": [s.__dict__ for s in shows],
-    }
+    try:
+        plex = get_plex_service()
+        letterboxd = get_letterboxd_client()
+        LOGGER.debug("Initialized Plex and Letterboxd clients")
+
+        engine = RecommendationEngine(plex, letterboxd)
+        LOGGER.debug("Starting movie recommendations")
+        movies = engine.build_movie_collection()
+        LOGGER.debug("Starting show recommendations")
+        shows = engine.build_show_collection()
+        LOGGER.info("Recommendation generation complete", extra={"movies": len(movies), "shows": len(shows)})
+        return {
+            "movies": [m.__dict__ for m in movies],
+            "shows": [s.__dict__ for s in shows],
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.exception("Unexpected error during recommendation generation")
+        raise HTTPException(status_code=500, detail="Failed to generate recommendations") from exc

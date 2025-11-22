@@ -42,14 +42,25 @@ class PlexService:
         return kwargs
 
     def _library_sections(self):
+        run_id = f"library-refresh-{datetime.now().isoformat()}-{random.randint(1000, 9999)}"
+        loaded_sections = []
         for name in [settings.plex_movie_library, settings.plex_show_library]:
             try:
                 section = self.client.library.section(name)
-                LOGGER.debug("Loaded Plex library section", extra={"section": name})
+                loaded_sections.append(name)
                 yield section
             except Exception:
-                LOGGER.exception("Failed to load Plex library section", extra={"section": name})
+                LOGGER.exception(
+                    "Failed to load Plex library section",
+                    extra={"section": name, "run_id": run_id},
+                )
                 continue
+
+        if loaded_sections:
+            LOGGER.debug(
+                "Loaded Plex library sections",
+                extra={"run_id": run_id, "sections": loaded_sections},
+            )
 
     def recently_watched_movies(self, days: int = 30, max_results: Optional[int] = None):
         cutoff = datetime.now() - timedelta(days=days)

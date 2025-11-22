@@ -28,7 +28,9 @@ def get_generate_logger() -> logging.Logger:
     if not logger.handlers:
         formatter = logging.Formatter(_DEF_FORMAT)
 
-        file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+        # Open the log file in write mode so each container start begins with a
+        # fresh generate log.
+        file_handler = logging.FileHandler(LOG_FILE, mode="w", encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)

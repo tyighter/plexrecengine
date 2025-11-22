@@ -37,36 +37,104 @@ class PlexService:
 
     def recently_watched_movies(self, days: int = 30, max_results: Optional[int] = None):
         cutoff = datetime.now() - timedelta(days=days)
+        limit = max_results or 200
         movies = []
         for section in self._library_sections():
-            if section.TYPE == "movie":
-                for movie in section.search(sort="lastViewedAt:desc", unwatched=False):
-                    last_viewed = getattr(movie, "lastViewedAt", None)
-                    if last_viewed and last_viewed >= cutoff:
-                        movies.append(movie)
+            if section.TYPE != "movie":
+                continue
+
+            try:
+                history_entries = self.client.history(
+                    librarySectionID=getattr(section, "key", None),
+                    type="movie",
+                    mindate=cutoff,
+                    maxresults=limit,
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Failed to load Plex history for movies", extra={"section": getattr(section, "title", None)}
+                )
+                history_entries = []
+
+            if not history_entries:
+                try:
+                    history_entries = section.search(
+                        sort="lastViewedAt:desc", unwatched=False, maxresults=limit
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        "Failed Plex search fallback for movies",
+                        extra={"section": getattr(section, "title", None)},
+                    )
+                    history_entries = []
+
+            for entry in history_entries:
+                movie = getattr(entry, "item", entry)
+                last_viewed = getattr(movie, "lastViewedAt", None) or getattr(entry, "viewedAt", None)
+                if last_viewed and last_viewed >= cutoff:
+                    movies.append(movie)
+
         LOGGER.debug(
             "Collected recently watched movies",
             extra={"count": len(movies), "cutoff": cutoff.isoformat()},
         )
-        sorted_items = sorted(movies, key=lambda m: getattr(m, "lastViewedAt", None) or datetime.min, reverse=True)
+        sorted_items = sorted(
+            movies,
+            key=lambda m: getattr(m, "lastViewedAt", None) or getattr(m, "viewedAt", None) or datetime.min,
+            reverse=True,
+        )
         if max_results:
             return sorted_items[:max_results]
         return sorted_items
 
     def recently_watched_shows(self, days: int = 30, max_results: Optional[int] = None):
         cutoff = datetime.now() - timedelta(days=days)
+        limit = max_results or 200
         episodes = []
         for section in self._library_sections():
-            if section.TYPE == "show":
-                for episode in section.search(sort="lastViewedAt:desc", unwatched=False):
-                    last_viewed = getattr(episode, "lastViewedAt", None)
-                    if last_viewed and last_viewed >= cutoff:
-                        episodes.append(episode)
+            if section.TYPE != "show":
+                continue
+
+            try:
+                history_entries = self.client.history(
+                    librarySectionID=getattr(section, "key", None),
+                    type="episode",
+                    mindate=cutoff,
+                    maxresults=limit,
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Failed to load Plex history for shows", extra={"section": getattr(section, "title", None)}
+                )
+                history_entries = []
+
+            if not history_entries:
+                try:
+                    history_entries = section.search(
+                        sort="lastViewedAt:desc", unwatched=False, maxresults=limit
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        "Failed Plex search fallback for shows",
+                        extra={"section": getattr(section, "title", None)},
+                    )
+                    history_entries = []
+
+            for entry in history_entries:
+                episode = getattr(entry, "item", entry)
+                last_viewed = getattr(episode, "lastViewedAt", None) or getattr(entry, "viewedAt", None)
+                if last_viewed and last_viewed >= cutoff:
+                    episodes.append(episode)
+
         LOGGER.debug(
             "Collected recently watched episodes",
             extra={"count": len(episodes), "cutoff": cutoff.isoformat()},
         )
-        sorted_eps = sorted(episodes, key=lambda e: getattr(e, "lastViewedAt", None) or datetime.min, reverse=True)
+        sorted_eps = sorted(
+            episodes,
+            key=lambda e: getattr(e, "lastViewedAt", None) or getattr(e, "viewedAt", None) or datetime.min,
+            reverse=True,
+        )
         shows = []
         seen_keys = set()
         for ep in sorted_eps:

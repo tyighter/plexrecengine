@@ -96,11 +96,11 @@ async def recent_activity():
         return {
             "recent_movies": [
                 _serialize_recent(item, plex.poster_url)
-                for item in plex.recently_watched_movies(days=30)
+                for item in plex.recently_watched_movies(days=30, max_results=200)
             ],
             "recent_shows": [
                 _serialize_recent(item, plex.poster_url)
-                for item in plex.recently_watched_shows(days=30)
+                for item in plex.recently_watched_shows(days=30, max_results=200)
             ],
         }
 

@@ -111,7 +111,7 @@ class RecommendationEngine:
 
     def build_movie_collection(self, limit: int = 10, days: int = 30) -> List[Recommendation]:
         recommendations: List[Recommendation] = []
-        recent_movies = list(self.plex.recently_watched_movies(days=days))
+        recent_movies = list(self.plex.recently_watched_movies(days=days, max_results=200))
         LOGGER.debug("Found recently watched movies", extra={"count": len(recent_movies)})
         for movie in recent_movies:
             recommendations.extend(self.top_recommendations_for_item(movie, media_type="movie"))
@@ -132,7 +132,7 @@ class RecommendationEngine:
 
     def build_show_collection(self, limit: int = 10, days: int = 30) -> List[Recommendation]:
         recommendations: List[Recommendation] = []
-        recent_shows = list(self.plex.recently_watched_shows(days=days))
+        recent_shows = list(self.plex.recently_watched_shows(days=days, max_results=200))
         LOGGER.debug("Found recently watched shows", extra={"count": len(recent_shows)})
         for show in recent_shows:
             recommendations.extend(self.top_recommendations_for_item(show, media_type="tv"))

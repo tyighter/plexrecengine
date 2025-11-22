@@ -26,9 +26,12 @@ from app.services.plex_service import get_plex_service
 from app.services.recommendation import RecommendationEngine
 from app.services.tautulli_service import list_tautulli_users
 
+APP_DIR = Path(__file__).resolve().parent
+WEB_DIR = APP_DIR / "web"
+
 app = FastAPI(title="Plex Recommendation Engine")
-templates = Jinja2Templates(directory="app/web/templates")
-app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
+templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 ENV_PATH = Path(".env")
 LOGGER = get_generate_logger()
 

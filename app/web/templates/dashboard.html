@@ -61,6 +61,13 @@
         .poster-tooltip p {
             margin: 0.15rem 0;
         }
+        .poster-tooltip .tooltip-heading {
+            margin-bottom: 0.3rem;
+        }
+        .poster-tooltip .tooltip-summary {
+            margin-bottom: 0.35rem;
+            line-height: 1.4;
+        }
         .score-breakdown {
             margin: 0.35rem 0 0;
             padding-left: 1.25rem;
@@ -340,40 +347,40 @@
             article.appendChild(text);
             const tooltip = document.createElement('div');
             tooltip.className = 'poster-tooltip';
+
             const reasonTitle = document.createElement('p');
+            reasonTitle.className = 'tooltip-heading';
             reasonTitle.innerHTML = '<strong>Why this pick?</strong>';
-            const reason = document.createElement('p');
-            reason.textContent = item.reason || 'Picked based on similarity to your recent viewing.';
+
+            const sharedWith = item.source_title || 'your recent watch';
+            const scoreText = item.score?.toFixed?.(2) ?? 'N/A';
+
+            const summary = document.createElement('p');
+            summary.className = 'tooltip-summary';
+
+            const sharedDetails = [];
+            const quoteValues = (values) => values.map((value) => `"${value}"`);
+            if (item.commonalities) {
+                const { directors, cast, writers, genres, keywords } = item.commonalities;
+                if (directors?.length) sharedDetails.push(`directors: ${directors.join(', ')}`);
+                if (cast?.length) sharedDetails.push(`cast: ${cast.join(', ')}`);
+                if (writers?.length) sharedDetails.push(`writers: ${writers.join(', ')}`);
+                if (genres?.length) sharedDetails.push(`genres of: ${genres.join(', ')}`);
+                if (keywords?.length) sharedDetails.push(`keywords: ${quoteValues(keywords).join(', ')}`);
+            }
+
+            const detailText = sharedDetails.length
+                ? ` They share ${sharedDetails.join(', ')}.`
+                : '';
+            summary.textContent = `${item.title} shares a similarity score of ${scoreText} with ${sharedWith}.${detailText}`;
+
             const source = document.createElement('p');
             source.className = 'muted';
             source.textContent = item.source_title ? `Triggered by: ${item.source_title}` : 'Triggered by a recent watch.';
+
             tooltip.appendChild(reasonTitle);
-            tooltip.appendChild(reason);
-            if (item.commonalities && Object.keys(item.commonalities).length) {
-                const sharedTitle = document.createElement('p');
-                const sharedWith = item.source_title || 'your recent watch';
-                sharedTitle.innerHTML = `<strong>Shared with ${sharedWith}</strong>`;
-                const sharedList = document.createElement('ul');
-                sharedList.className = 'score-breakdown';
-                const labels = [
-                    ['directors', 'Directors'],
-                    ['cast', 'Cast'],
-                    ['writers', 'Writers'],
-                    ['genres', 'Genres'],
-                    ['keywords', 'Keywords'],
-                ];
-                labels.forEach(([key, label]) => {
-                    const values = item.commonalities[key];
-                    if (!values || !values.length) return;
-                    const entry = document.createElement('li');
-                    entry.textContent = `${label}: ${values.join(', ')}`;
-                    sharedList.appendChild(entry);
-                });
-                if (sharedList.children.length) {
-                    tooltip.appendChild(sharedTitle);
-                    tooltip.appendChild(sharedList);
-                }
-            }
+            tooltip.appendChild(summary);
+
             if (item.score_breakdown && Object.keys(item.score_breakdown).length) {
                 const breakdownTitle = document.createElement('p');
                 breakdownTitle.innerHTML = '<strong>Score breakdown</strong>';
@@ -400,6 +407,7 @@
                     tooltip.appendChild(breakdownList);
                 }
             }
+
             tooltip.appendChild(source);
             article.appendChild(tooltip);
             container.appendChild(article);

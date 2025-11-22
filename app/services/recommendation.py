@@ -104,10 +104,9 @@ class RecommendationEngine:
     def _refresh_collection(self, collection_name: str, recs: List[Recommendation]):
         items = []
         for rec in recs:
-            try:
-                items.append(self.plex.client.fetchItem(rec.rating_key))
-            except Exception:
-                continue
+            item = self.plex.fetch_item(rec.rating_key)
+            if item:
+                items.append(item)
         try:
             self.plex.set_collection_members(collection_name, items)
         except Exception:

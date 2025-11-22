@@ -411,9 +411,15 @@ class PlexService:
         try:
             return self.client.fetchItem(key)
         except NotFound:
+            context_bits = []
+            for field, value in extra_data.items():
+                if value is None:
+                    continue
+                context_bits.append(f"{field}={value}")
+
+            context_suffix = f" ({', '.join(context_bits)})" if context_bits else ""
             LOGGER.error(
-                "Plex item not found",
-                extra=extra_data,
+                "Plex item not found%s", context_suffix, extra=extra_data
             )
             return None
         except Exception:

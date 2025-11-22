@@ -37,6 +37,7 @@ LOGGER = get_generate_logger()
 WEB_LOGGER = get_webui_logger()
 
 RECENT_CACHE_TTL_SECONDS = 300
+REQUEST_TIMEOUT_SECONDS = 10.0
 RECENT_ACTIVITY_CACHE: dict[str, object] = {"data": None, "timestamp": 0.0}
 RECENT_CACHE_LOCK = asyncio.Lock()
 LAST_SEEN_RECENT_KEYS: set[str] = set()
@@ -218,6 +219,7 @@ async def _watch_recent_activity():
 
 @app.on_event("startup")
 async def startup_build_collections():
+    WEB_LOGGER.info("Web UI starting up and ready to serve requests")
     if not settings.is_plex_configured or not settings.tmdb_api_key:
         return
 
@@ -245,17 +247,27 @@ async def dashboard(request: Request):
 
     if settings.is_plex_configured:
         try:
-            recent = await refresh_recent_cache()
+            recent = await asyncio.wait_for(
+                refresh_recent_cache(), timeout=REQUEST_TIMEOUT_SECONDS
+            )
             recent_movies = list(recent.get("recent_movies", []))  # type: ignore[arg-type]
             recent_shows = list(recent.get("recent_shows", []))  # type: ignore[arg-type]
+        except asyncio.TimeoutError:
+            LOGGER.warning("Timed out loading recent activity for dashboard; rendering without it")
         except Exception:  # noqa: BLE001
             LOGGER.exception("Failed to load recent activity for dashboard")
 
     if settings.is_plex_configured and settings.tmdb_api_key:
         try:
-            cached_recs = await _generate_recommendations()
+            cached_recs = await asyncio.wait_for(
+                _generate_recommendations(), timeout=REQUEST_TIMEOUT_SECONDS
+            )
             movies = cached_recs.get("movies", []) if cached_recs else []
             shows = cached_recs.get("shows", []) if cached_recs else []
+        except asyncio.TimeoutError:
+            LOGGER.warning(
+                "Timed out loading cached recommendations for dashboard; rendering placeholders"
+            )
         except Exception:  # noqa: BLE001
             LOGGER.exception("Failed to load cached recommendations for dashboard")
     WEB_LOGGER.info(
@@ -291,7 +303,15 @@ async def recent_activity():
         return RECENT_ACTIVITY_CACHE["data"]
 
     try:
-        return await refresh_recent_cache(force=True)
+        try:
+            return await asyncio.wait_for(
+                refresh_recent_cache(force=True), timeout=REQUEST_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            LOGGER.warning("Timed out refreshing recent activity; returning stale cache if available")
+            if RECENT_ACTIVITY_CACHE["data"]:
+                return RECENT_ACTIVITY_CACHE["data"]
+            raise HTTPException(status_code=504, detail="Recent activity request timed out")
     except Exception as exc:  # noqa: BLE001
         LOGGER.exception("Failed to refresh recent activity; returning stale cache if available")
         if RECENT_ACTIVITY_CACHE["data"]:
@@ -407,7 +427,9 @@ async def build_recommendations():
         raise HTTPException(status_code=400, detail="TMDB API key is missing")
 
     try:
-        recommendations = await _generate_recommendations(force=True)
+        recommendations = await asyncio.wait_for(
+            _generate_recommendations(force=True), timeout=REQUEST_TIMEOUT_SECONDS
+        )
         LOGGER.info(
             "Recommendation generation complete",
             extra={
@@ -416,6 +438,9 @@ async def build_recommendations():
             },
         )
         return recommendations
+    except asyncio.TimeoutError as exc:
+        LOGGER.warning("Recommendation generation timed out")
+        raise HTTPException(status_code=504, detail="Recommendation generation timed out") from exc
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -428,7 +453,12 @@ async def cached_recommendations():
     if not settings.is_plex_configured or not settings.tmdb_api_key:
         return {"movies": [], "shows": []}
     try:
-        return await _generate_recommendations()
+        return await asyncio.wait_for(
+            _generate_recommendations(), timeout=REQUEST_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError as exc:
+        LOGGER.warning("Timed out returning cached recommendations")
+        raise HTTPException(status_code=504, detail="Recommendation lookup timed out") from exc
     except Exception as exc:  # noqa: BLE001
         LOGGER.exception("Failed to return cached recommendations")
         raise HTTPException(status_code=500, detail="Failed to load recommendations") from exc

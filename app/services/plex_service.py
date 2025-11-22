@@ -124,12 +124,15 @@ class PlexService:
                     return section
         return None
 
-    def ensure_collection(self, title: str, section):
+    def ensure_collection(self, title: str, section, items=None):
         existing = next((c for c in section.collections() if c.title == title), None)
         LOGGER.debug(
             "Ensuring Plex collection exists", extra={"title": title, "section": getattr(section, "title", None)}
         )
-        return existing or section.createCollection(title)
+        if existing:
+            return existing
+
+        return section.createCollection(title, items=items)
 
     def set_collection_members(self, collection_name: str, items: Iterable):
         items = list(items)
@@ -140,7 +143,7 @@ class PlexService:
         if section is None:
             raise RuntimeError("Unable to determine library section for collection members")
 
-        collection = self.ensure_collection(collection_name, section)
+        collection = self.ensure_collection(collection_name, section, items=items)
         collection.deleteItems(collection.items())
         LOGGER.debug(
             "Reset Plex collection items",

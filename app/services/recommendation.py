@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 
@@ -14,6 +15,9 @@ class Recommendation:
     poster: str | None
     rating_key: int
     letterboxd_rating: float | None = None
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class RecommendationEngine:
@@ -78,7 +82,10 @@ class RecommendationEngine:
                 items.append(self.plex.client.fetchItem(rec.rating_key))
             except Exception:
                 continue
-        self.plex.set_collection_members(collection_name, items)
+        try:
+            self.plex.set_collection_members(collection_name, items)
+        except Exception:
+            LOGGER.exception("Failed to refresh Plex collection", extra={"collection": collection_name})
 
     def build_movie_collection(self, limit: int = 10, days: int = 30) -> List[Recommendation]:
         recommendations: List[Recommendation] = []

@@ -57,7 +57,7 @@ class RecommendationEngine:
         return scored
 
     def top_recommendations_for_item(
-        self, item, media_type: str, count: int = 3
+        self, item, media_type: str, count: int = 6
     ) -> List[Recommendation]:
         source_profile = self._profile_for_item(item, media_type)
         if source_profile is None:
@@ -70,7 +70,7 @@ class RecommendationEngine:
             f"{source_title} ({source_year})" if source_title and source_year else source_title
         )
         recommendations: List[Recommendation] = []
-        for profile, score, breakdown in scored[:count * 2]:
+        for profile, score, breakdown in scored[: count * 2]:
             # try to find an unwatched matching item in Plex
             for plex_item in self.plex.search_unwatched(section_type=media_type, query=profile.title):
                 reason_parts = [
@@ -101,6 +101,90 @@ class RecommendationEngine:
                 break
         return recommendations
 
+    def _resolve_conflicts(
+        self,
+        candidates_by_source: dict[int, List[Recommendation]],
+        picks_per_source: int,
+    ) -> dict[int, List[Recommendation]]:
+        selected: dict[int, List[Recommendation]] = {}
+        remaining: dict[int, List[Recommendation]] = {}
+        for source, candidates in candidates_by_source.items():
+            selected[source] = list(candidates[:picks_per_source])
+            remaining[source] = list(candidates[picks_per_source:])
+
+        changed = True
+        while changed:
+            changed = False
+            rating_owner: dict[int, Tuple[int, Recommendation]] = {}
+
+            for source, recs in selected.items():
+                for rec in list(recs):
+                    owner = rating_owner.get(rec.rating_key)
+                    if owner is None or rec.score > owner[1].score:
+                        if owner is not None and owner[1] in selected.get(owner[0], []):
+                            selected[owner[0]].remove(owner[1])
+                            remaining[owner[0]].insert(0, owner[1])
+                            changed = True
+                        rating_owner[rec.rating_key] = (source, rec)
+                    else:
+                        selected[source].remove(rec)
+                        remaining[source].insert(0, rec)
+                        changed = True
+
+            for source in list(selected.keys()):
+                while len(selected[source]) < picks_per_source and remaining[source]:
+                    candidate = remaining[source].pop(0)
+                    owner = rating_owner.get(candidate.rating_key)
+                    if owner is None:
+                        selected[source].append(candidate)
+                        rating_owner[candidate.rating_key] = (source, candidate)
+                        changed = True
+                    elif candidate.score > owner[1].score:
+                        prev_source, prev_rec = owner
+                        if prev_rec in selected.get(prev_source, []):
+                            selected[prev_source].remove(prev_rec)
+                            remaining[prev_source].insert(0, prev_rec)
+                        selected[source].append(candidate)
+                        rating_owner[candidate.rating_key] = (source, candidate)
+                        changed = True
+
+        return selected
+
+    def _build_collection(
+        self, recent_items: List, media_type: str, collection_name: str, limit: int
+    ) -> List[Recommendation]:
+        picks_per_source = 3
+        candidates_by_source: dict[int, List[Recommendation]] = {}
+        source_order: List[int] = []
+        for item in recent_items:
+            source_id = getattr(item, "ratingKey", id(item))
+            recs = self.top_recommendations_for_item(
+                item, media_type=media_type, count=picks_per_source * 3
+            )
+            if not recs:
+                continue
+            candidates_by_source[source_id] = recs
+            source_order.append(source_id)
+
+        selected_by_source = self._resolve_conflicts(candidates_by_source, picks_per_source)
+
+        final: List[Recommendation] = []
+        for source in source_order:
+            source_recs = sorted(
+                selected_by_source.get(source, []), key=lambda rec: rec.score, reverse=True
+            )
+            final.extend(source_recs)
+            if len(final) >= limit * picks_per_source:
+                break
+
+        final = final[: limit * picks_per_source]
+        LOGGER.debug(
+            "Compiled %s recommendations", collection_name,
+            extra={"sources": len(source_order), "final": len(final)},
+        )
+        self._refresh_collection(collection_name, final)
+        return final
+
     def _refresh_collection(self, collection_name: str, recs: List[Recommendation]):
         items = []
         for rec in recs:
@@ -121,43 +205,15 @@ class RecommendationEngine:
             LOGGER.exception("Failed to refresh Plex collection", extra={"collection": collection_name})
 
     def build_movie_collection(self, limit: int = 10, days: int = 30) -> List[Recommendation]:
-        recommendations: List[Recommendation] = []
         recent_movies = list(self.plex.recently_watched_movies(days=days, max_results=200))
         LOGGER.debug("Found recently watched movies", extra={"count": len(recent_movies)})
-        for movie in recent_movies:
-            recommendations.extend(self.top_recommendations_for_item(movie, media_type="movie"))
-        unique: List[Recommendation] = []
-        seen = set()
-        for rec in sorted(recommendations, key=lambda r: r.score, reverse=True):
-            if rec.rating_key in seen:
-                continue
-            seen.add(rec.rating_key)
-            unique.append(rec)
-        final = unique[: limit * 3]
-        LOGGER.debug(
-            "Compiled movie recommendations",
-            extra={"candidates": len(recommendations), "unique": len(final)},
+        return self._build_collection(
+            recent_movies, media_type="movie", collection_name="Recommended Movies", limit=limit
         )
-        self._refresh_collection("Recommended Movies", final)
-        return final
 
     def build_show_collection(self, limit: int = 10, days: int = 30) -> List[Recommendation]:
-        recommendations: List[Recommendation] = []
         recent_shows = list(self.plex.recently_watched_shows(days=days, max_results=200))
         LOGGER.debug("Found recently watched shows", extra={"count": len(recent_shows)})
-        for show in recent_shows:
-            recommendations.extend(self.top_recommendations_for_item(show, media_type="tv"))
-        unique: List[Recommendation] = []
-        seen = set()
-        for rec in sorted(recommendations, key=lambda r: r.score, reverse=True):
-            if rec.rating_key in seen:
-                continue
-            seen.add(rec.rating_key)
-            unique.append(rec)
-        final = unique[: limit * 3]
-        LOGGER.debug(
-            "Compiled show recommendations",
-            extra={"candidates": len(recommendations), "unique": len(final)},
+        return self._build_collection(
+            recent_shows, media_type="tv", collection_name="Recommended Shows", limit=limit
         )
-        self._refresh_collection("Recommended Shows", final)
-        return final

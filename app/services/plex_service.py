@@ -71,6 +71,7 @@ class PlexService:
         cutoff = datetime.now() - timedelta(days=days)
         limit = max_results or 200
         movies = []
+        seen_movie_keys = set()
         for section in self._library_sections():
             if section.TYPE != "movie":
                 continue
@@ -84,6 +85,12 @@ class PlexService:
                 history_entries = []
 
             if not history_entries:
+                if settings.plex_user_id:
+                    LOGGER.debug(
+                        "Skipping Plex search fallback for movies because a specific user is configured",
+                        extra={"section": getattr(section, "title", None)},
+                    )
+                    continue
                 try:
                     history_entries = section.search(
                         sort="lastViewedAt:desc", unwatched=False, maxresults=limit
@@ -102,7 +109,12 @@ class PlexService:
                     continue
 
                 last_viewed = getattr(movie, "lastViewedAt", None) or getattr(entry, "viewedAt", None)
+                rating_key = getattr(movie, "ratingKey", None)
                 if last_viewed and last_viewed >= cutoff:
+                    if rating_key is not None and rating_key in seen_movie_keys:
+                        continue
+                    if rating_key is not None:
+                        seen_movie_keys.add(rating_key)
                     movies.append(movie)
 
         LOGGER.debug(
@@ -122,6 +134,7 @@ class PlexService:
         cutoff = datetime.now() - timedelta(days=days)
         limit = max_results or 200
         episodes = []
+        seen_episode_keys = set()
         for section in self._library_sections():
             if section.TYPE != "show":
                 continue
@@ -135,6 +148,12 @@ class PlexService:
                 history_entries = []
 
             if not history_entries:
+                if settings.plex_user_id:
+                    LOGGER.debug(
+                        "Skipping Plex search fallback for shows because a specific user is configured",
+                        extra={"section": getattr(section, "title", None)},
+                    )
+                    continue
                 try:
                     history_entries = section.search(
                         sort="lastViewedAt:desc", unwatched=False, maxresults=limit
@@ -153,7 +172,12 @@ class PlexService:
                     continue
 
                 last_viewed = getattr(episode, "lastViewedAt", None) or getattr(entry, "viewedAt", None)
+                rating_key = getattr(episode, "ratingKey", None)
                 if last_viewed and last_viewed >= cutoff:
+                    if rating_key is not None and rating_key in seen_episode_keys:
+                        continue
+                    if rating_key is not None:
+                        seen_episode_keys.add(rating_key)
                     episodes.append(episode)
 
         LOGGER.debug(

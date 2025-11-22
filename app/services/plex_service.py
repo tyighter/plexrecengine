@@ -16,6 +16,18 @@ class PlexService:
         if not settings.is_plex_configured:
             raise RuntimeError("Plex is not configured. Please sign in through the web interface.")
         self.client = PlexServer(str(settings.plex_base_url), settings.plex_token)
+        self.filter_history_by_user = False
+        self._plex_account_id: Optional[str] = None
+
+        if settings.plex_user_id:
+            if str(settings.plex_user_id).isdigit():
+                self.filter_history_by_user = True
+                self._plex_account_id = str(settings.plex_user_id)
+            else:
+                LOGGER.warning(
+                    "Ignoring non-numeric Plex user id for history filtering",
+                    extra={"plex_user_id": settings.plex_user_id},
+                )
         LOGGER.debug(
             "Initialized Plex service client",
             extra={
@@ -33,13 +45,13 @@ class PlexService:
             "maxresults": limit,
         }
 
-        if settings.plex_user_id:
-            kwargs["accountID"] = settings.plex_user_id
+        if self.filter_history_by_user and self._plex_account_id:
+            kwargs["accountID"] = self._plex_account_id
             LOGGER.debug(
                 "Filtering Plex history by user",
                 extra={
                     "section": getattr(section, "title", None),
-                    "account_id": settings.plex_user_id,
+                    "account_id": self._plex_account_id,
                     "cutoff": cutoff.isoformat(),
                 },
             )
@@ -85,7 +97,7 @@ class PlexService:
                 history_entries = []
 
             if not history_entries:
-                if settings.plex_user_id:
+                if self.filter_history_by_user:
                     LOGGER.debug(
                         "Skipping Plex search fallback for movies because a specific user is configured",
                         extra={"section": getattr(section, "title", None)},
@@ -148,7 +160,7 @@ class PlexService:
                 history_entries = []
 
             if not history_entries:
-                if settings.plex_user_id:
+                if self.filter_history_by_user:
                     LOGGER.debug(
                         "Skipping Plex search fallback for shows because a specific user is configured",
                         extra={"section": getattr(section, "title", None)},

@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl
 
 from app.keys_store import persist_keys
 from app.config import save_config, settings
@@ -24,6 +24,7 @@ from app.services.plex_auth import (
 from app.services.letterboxd_client import get_letterboxd_client
 from app.services.plex_service import get_plex_service
 from app.services.recommendation import RecommendationEngine
+from app.services.tautulli_service import list_tautulli_users
 
 app = FastAPI(title="Plex Recommendation Engine")
 templates = Jinja2Templates(directory="app/web/templates")
@@ -44,6 +45,11 @@ class PlexPreferences(BaseModel):
     movieLibrary: str
     showLibrary: str
     plexUserId: str | None = None
+
+
+class TautulliConfigRequest(BaseModel):
+    baseUrl: HttpUrl
+    apiKey: str
 
 
 def _serialize_recent(item, poster_url):
@@ -190,6 +196,33 @@ async def update_preferences(payload: PlexPreferences):
         return result
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/tautulli/config")
+async def set_tautulli_config(payload: TautulliConfigRequest):
+    base_url = str(payload.baseUrl).rstrip("/")
+    api_key = payload.apiKey.strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API key is required")
+
+    ENV_PATH.touch(exist_ok=True)
+    set_key(str(ENV_PATH), "TAUTULLI_BASE_URL", base_url)
+    set_key(str(ENV_PATH), "TAUTULLI_API_KEY", api_key)
+    save_config({"TAUTULLI_BASE_URL": base_url, "TAUTULLI_API_KEY": api_key})
+    persist_keys(tautulli_base_url=base_url, tautulli_api_key=api_key)
+    settings.tautulli_base_url = base_url
+    settings.tautulli_api_key = api_key
+    return {"status": "ok"}
+
+
+@app.get("/api/tautulli/users")
+async def available_tautulli_users():
+    if not settings.is_tautulli_configured:
+        raise HTTPException(status_code=400, detail="Tautulli is not configured")
+    try:
+        return list_tautulli_users()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/api/tmdb/key")

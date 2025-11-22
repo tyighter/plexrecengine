@@ -138,6 +138,7 @@ def _persist_settings(
     movie_library: str,
     show_library: str,
     plex_user_id: str | None = None,
+    tautulli_user_id: str | None = None,
 ):
     ENV_PATH.touch(exist_ok=True)
     set_key(str(ENV_PATH), "PLEX_BASE_URL", base_url)
@@ -146,6 +147,7 @@ def _persist_settings(
     set_key(str(ENV_PATH), "PLEX_MOVIE_LIBRARY", movie_library)
     set_key(str(ENV_PATH), "PLEX_SHOW_LIBRARY", show_library)
     set_key(str(ENV_PATH), "PLEX_USER_ID", plex_user_id or "")
+    set_key(str(ENV_PATH), "TAUTULLI_USER_ID", tautulli_user_id or plex_user_id or "")
     persist_keys(
         plex_base_url=base_url,
         plex_token=token,
@@ -153,6 +155,7 @@ def _persist_settings(
         plex_movie_library=movie_library,
         plex_show_library=show_library,
         plex_user_id=plex_user_id or None,
+        tautulli_user_id=tautulli_user_id or plex_user_id or None,
     )
     save_config(
         {
@@ -162,6 +165,7 @@ def _persist_settings(
             "PLEX_MOVIE_LIBRARY": movie_library,
             "PLEX_SHOW_LIBRARY": show_library,
             "PLEX_USER_ID": plex_user_id or None,
+            "TAUTULLI_USER_ID": tautulli_user_id or plex_user_id or None,
         }
     )
     settings.plex_base_url = base_url
@@ -170,6 +174,7 @@ def _persist_settings(
     settings.plex_movie_library = movie_library
     settings.plex_show_library = show_library
     settings.plex_user_id = plex_user_id or None
+    settings.tautulli_user_id = tautulli_user_id or plex_user_id or None
     LOGGER.debug(
         "Persisted Plex settings",
         extra={
@@ -177,6 +182,7 @@ def _persist_settings(
             "movie_library": movie_library,
             "show_library": show_library,
             "plex_user_id": plex_user_id,
+            "tautulli_user_id": tautulli_user_id,
             "env_path": str(ENV_PATH),
         },
     )
@@ -255,7 +261,14 @@ def save_library_preferences(movie_library: str, show_library: str, plex_user_id
     show = _validate_library_choice(show_library, available, media_type="show")
     user_id = (plex_user_id or "").strip() or None
 
-    _persist_settings(str(settings.plex_base_url), str(settings.plex_token), movie, show, user_id)
+    _persist_settings(
+        str(settings.plex_base_url),
+        str(settings.plex_token),
+        movie,
+        show,
+        user_id,
+        settings.tautulli_user_id,
+    )
     LOGGER.info(
         "Updated Plex library preferences",
         extra={"movie_library": movie, "show_library": show, "plex_user_id": user_id},
@@ -320,6 +333,7 @@ def check_login(pin_id: str) -> PlexLoginStatus:
         movie_library,
         show_library,
         settings.plex_user_id,
+        settings.tautulli_user_id,
     )
     LOGGER.info(
         "Plex login authorized",

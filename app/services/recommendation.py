@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 
@@ -15,6 +16,7 @@ class Recommendation:
     score: float
     poster: str | None
     rating_key: int
+    year: int | None = None
     tmdb_rating: float | None = None
     source_title: str | None = None
     reason: str | None = None
@@ -80,32 +82,56 @@ class RecommendationEngine:
             )
         )
         SCORING_LOGGER.info(
-            "Initial related pool (%s): %s",
+            "Found %s related movies for %s",
             len(related),
-            ", ".join(
-                f"{candidate.title} (tmdb_id={candidate.tmdb_id})" for candidate in related
-            ),
+            source_label or "Unknown title",
         )
         scored = self._score_related(source_profile, related)
+        library_name = (
+            settings.plex_movie_library
+            if media_type == "movie"
+            else settings.plex_show_library
+        ) or "Plex library"
+
+        availability: List[Tuple[MediaProfile, float, dict[str, float], list]] = []
+        available_in_library = 0
+        for profile, score, breakdown in scored:
+            plex_matches = list(
+                self.plex.search_library(section_type=media_type, query=profile.title)
+            )
+            if plex_matches:
+                available_in_library += 1
+            availability.append((profile, score, breakdown, plex_matches))
+
+        SCORING_LOGGER.info(
+            "%s/%s related movies found in %s",
+            available_in_library,
+            len(related),
+            library_name,
+        )
+
         if not scored:
             SCORING_LOGGER.info("No related titles produced non-zero scores")
         else:
-            for rank, (profile, score, breakdown) in enumerate(scored, start=1):
+            for rank, (profile, score, breakdown, plex_matches) in enumerate(
+                availability, start=1
+            ):
+                breakdown_text = ", ".join(
+                    f"{key}={value:.2f}" for key, value in sorted(breakdown.items())
+                )
                 SCORING_LOGGER.info(
-                    "#%s %s (tmdb_id=%s) score=%.2f breakdown=%s",
+                    "Score #%s: %s (tmdb_id=%s) score=%.2f [%s]%s",
                     rank,
                     profile.title,
                     profile.tmdb_id,
                     score,
-                    breakdown,
+                    breakdown_text,
+                    " — available in Plex" if plex_matches else "",
                 )
         recommendations: List[Recommendation] = []
         skipped_not_in_library: list[str] = []
-        for profile, score, breakdown in scored[: count * 2]:
+        for profile, score, breakdown, plex_matches in availability[: count * 2]:
             # try to find an unwatched matching item in Plex
-            plex_matches = list(
-                self.plex.search_library(section_type=media_type, query=profile.title)
-            )
             if not plex_matches:
                 skipped_not_in_library.append(profile.title)
                 SCORING_LOGGER.info(
@@ -174,6 +200,7 @@ class RecommendationEngine:
                     score=score,
                     poster=self.plex.poster_url(plex_item),
                     rating_key=plex_item.ratingKey,
+                    year=getattr(plex_item, "year", None),
                     tmdb_rating=profile.tmdb_rating,
                     source_title=source_title,
                     reason=". ".join(reason_parts),
@@ -201,12 +228,14 @@ class RecommendationEngine:
 
         if recommendations:
             top_selected = sorted(recommendations, key=lambda rec: rec.score, reverse=True)[:3]
+            top_summary = ", ".join(
+                f"#{idx} {rec.title} (score={rec.score:.2f})"
+                for idx, rec in enumerate(top_selected, start=1)
+            )
             SCORING_LOGGER.info(
-                "Top %s selected Plex matches: %s",
+                "Top %s selected for the collection: %s",
                 len(top_selected),
-                ", ".join(
-                    f"{rec.title} (score={rec.score:.2f})" for rec in top_selected
-                ),
+                top_summary,
             )
         return recommendations
 
@@ -287,12 +316,29 @@ class RecommendationEngine:
                 break
 
         final = final[: limit * picks_per_source]
+        final = self._order_recommendations(final)
         LOGGER.debug(
             "Compiled %s recommendations", collection_name,
             extra={"sources": len(source_order), "final": len(final)},
         )
         self._refresh_collection(collection_name, final)
         return final
+
+    def _order_recommendations(self, recs: List[Recommendation]) -> List[Recommendation]:
+        order = (settings.collection_order or "highest_score").lower()
+        ordered = list(recs)
+
+        if order == "random":
+            random.shuffle(ordered)
+            return ordered
+        if order == "alphabetical":
+            return sorted(ordered, key=lambda rec: rec.title or "")
+        if order == "oldest_first":
+            return sorted(ordered, key=lambda rec: ((rec.year or 9999), rec.title or ""))
+        if order == "newest_first":
+            return sorted(ordered, key=lambda rec: (-(rec.year or 0), rec.title or ""))
+
+        return sorted(ordered, key=lambda rec: rec.score, reverse=True)
 
     def _refresh_collection(self, collection_name: str, recs: List[Recommendation]):
         items = []

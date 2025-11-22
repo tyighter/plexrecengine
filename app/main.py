@@ -89,6 +89,15 @@ async def log_web_requests(request: Request, call_next):
     return response
 
 
+ALLOWED_COLLECTION_ORDERS = {
+    "random",
+    "highest_score",
+    "alphabetical",
+    "oldest_first",
+    "newest_first",
+}
+
+
 class TmdbKeyRequest(BaseModel):
     apiKey: str
 
@@ -107,6 +116,7 @@ class TautulliConfigRequest(BaseModel):
 class RecommendationConfig(BaseModel):
     relatedPoolLimit: int | None = None
     allowWatched: bool | None = None
+    collectionOrder: str | None = None
 
 
 def _serialize_recent(item, poster_url):
@@ -466,7 +476,11 @@ async def set_tmdb_api_key(payload: TmdbKeyRequest):
 
 @app.post("/api/recommendations/config")
 async def set_recommendation_config(payload: RecommendationConfig):
-    if payload.relatedPoolLimit is None and payload.allowWatched is None:
+    if (
+        payload.relatedPoolLimit is None
+        and payload.allowWatched is None
+        and payload.collectionOrder is None
+    ):
         raise HTTPException(
             status_code=400,
             detail="Provide at least one recommendation setting to update",
@@ -492,10 +506,20 @@ async def set_recommendation_config(payload: RecommendationConfig):
         save_config({"ALLOW_WATCHED_RECOMMENDATIONS": payload.allowWatched})
         settings.allow_watched_recommendations = payload.allowWatched
 
+    if payload.collectionOrder is not None:
+        order = payload.collectionOrder.strip().lower()
+        if order not in ALLOWED_COLLECTION_ORDERS:
+            raise HTTPException(status_code=400, detail="Unsupported collection order")
+        ENV_PATH.touch(exist_ok=True)
+        set_key(str(ENV_PATH), "COLLECTION_ORDER", order)
+        save_config({"COLLECTION_ORDER": order})
+        settings.collection_order = order
+
     return {
         "status": "ok",
         "related_pool_limit": settings.related_pool_limit,
         "allow_watched_recommendations": settings.allow_watched_recommendations,
+        "collection_order": settings.collection_order,
     }
 
 

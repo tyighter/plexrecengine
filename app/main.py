@@ -105,7 +105,8 @@ class TautulliConfigRequest(BaseModel):
 
 
 class RecommendationConfig(BaseModel):
-    relatedPoolLimit: int
+    relatedPoolLimit: int | None = None
+    allowWatched: bool | None = None
 
 
 def _serialize_recent(item, poster_url):
@@ -444,15 +445,37 @@ async def set_tmdb_api_key(payload: TmdbKeyRequest):
 
 @app.post("/api/recommendations/config")
 async def set_recommendation_config(payload: RecommendationConfig):
-    if payload.relatedPoolLimit < 0:
+    if payload.relatedPoolLimit is None and payload.allowWatched is None:
         raise HTTPException(
-            status_code=400, detail="Related pool limit must be zero or greater"
+            status_code=400,
+            detail="Provide at least one recommendation setting to update",
         )
-    ENV_PATH.touch(exist_ok=True)
-    set_key(str(ENV_PATH), "RELATED_POOL_LIMIT", str(payload.relatedPoolLimit))
-    save_config({"RELATED_POOL_LIMIT": payload.relatedPoolLimit})
-    settings.related_pool_limit = payload.relatedPoolLimit
-    return {"status": "ok", "related_pool_limit": payload.relatedPoolLimit}
+
+    if payload.relatedPoolLimit is not None:
+        if payload.relatedPoolLimit < 0:
+            raise HTTPException(
+                status_code=400, detail="Related pool limit must be zero or greater"
+            )
+        ENV_PATH.touch(exist_ok=True)
+        set_key(str(ENV_PATH), "RELATED_POOL_LIMIT", str(payload.relatedPoolLimit))
+        save_config({"RELATED_POOL_LIMIT": payload.relatedPoolLimit})
+        settings.related_pool_limit = payload.relatedPoolLimit
+
+    if payload.allowWatched is not None:
+        ENV_PATH.touch(exist_ok=True)
+        set_key(
+            str(ENV_PATH),
+            "ALLOW_WATCHED_RECOMMENDATIONS",
+            "true" if payload.allowWatched else "false",
+        )
+        save_config({"ALLOW_WATCHED_RECOMMENDATIONS": payload.allowWatched})
+        settings.allow_watched_recommendations = payload.allowWatched
+
+    return {
+        "status": "ok",
+        "related_pool_limit": settings.related_pool_limit,
+        "allow_watched_recommendations": settings.allow_watched_recommendations,
+    }
 
 
 @app.post("/webhook")

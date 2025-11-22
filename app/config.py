@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     tmdb_api_key: str | None = None
     letterboxd_session: str | None = None
     related_pool_limit: int = 20
+    allow_watched_recommendations: bool = True
     dashboard_timeout_seconds: float = 10.0
     recent_activity_timeout_seconds: float = 10.0
     recommendation_build_timeout_seconds: float = 120.0

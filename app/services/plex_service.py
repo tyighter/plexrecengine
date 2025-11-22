@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-import inspect
 import random
 from typing import Iterable, List, Optional
 
@@ -17,7 +16,6 @@ class PlexService:
         if not settings.is_plex_configured:
             raise RuntimeError("Plex is not configured. Please sign in through the web interface.")
         self.client = PlexServer(str(settings.plex_base_url), settings.plex_token)
-        self._history_params = set(inspect.signature(self.client.history).parameters)
         LOGGER.debug(
             "Initialized Plex service client",
             extra={
@@ -33,11 +31,6 @@ class PlexService:
             "mindate": cutoff,
             "maxresults": limit,
         }
-
-        if "type" in self._history_params:
-            section_type = getattr(section, "TYPE", None)
-            if section_type:
-                kwargs["type"] = section_type
 
         return kwargs
 

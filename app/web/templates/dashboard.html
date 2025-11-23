@@ -353,37 +353,23 @@
 </div>
 <main>
     <section class="panel subhead">
-        <div class="header-actions">
-            <div>
-                <h1>Plex Recommendations</h1>
-                <div class="connection-badges" aria-label="Connection status">
-                    <span id="plex-status" class="status-pill {{ 'connected' if settings.is_plex_configured else 'disconnected' }}" aria-live="polite">
-                        <span class="status-dot" aria-hidden="true"></span>
-                        <span id="plex-status-text">Plex {{ 'Connected' if settings.is_plex_configured else 'Not connected' }}</span>
-                    </span>
-                    <span id="tautulli-status" class="status-pill {{ 'connected' if settings.is_tautulli_configured else 'disconnected' }}" aria-live="polite">
-                        <span class="status-dot" aria-hidden="true"></span>
-                        <span id="tautulli-status-text">Tautulli {{ 'Connected' if settings.is_tautulli_configured else 'Not connected' }}</span>
-                    </span>
-                    <span
-                        id="plex-index-status"
-                        class="status-pill {{ 'pending' if index_status.state == 'building' else ('connected' if index_status.state == 'ready' else 'disconnected') }}"
-                        aria-live="polite"
-                    >
-                        <span class="status-dot" aria-hidden="true"></span>
-                        <span id="plex-index-status-text">Plex index {{ 'Building' if index_status.state == 'building' else 'Idle' }}</span>
-                    </span>
-                </div>
-                {% if settings.is_plex_configured %}
-                <p>Signed into Plex at {{ settings.plex_base_url }}. Build recommendations on demand or when the webhook is called after a watch.</p>
-                <p class="muted">Using movie library <strong>{{ settings.plex_movie_library }}</strong> and TV library <strong>{{ settings.plex_show_library }}</strong>. Recommendations now rely entirely on Plex metadata and plot similarity.</p>
-                {% else %}
-                <p class="muted">Plex is not configured yet. Use the settings modal to connect your server.</p>
-                {% endif %}
-            </div>
-            <div>
-                <p class="muted" style="margin: 0;">Classic Google-style interface</p>
-            </div>
+        <div class="connection-badges" aria-label="Connection status">
+            <span id="plex-status" class="status-pill {{ 'connected' if settings.is_plex_configured else 'disconnected' }}" aria-live="polite">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span id="plex-status-text">Plex {{ 'Connected' if settings.is_plex_configured else 'Not connected' }}</span>
+            </span>
+            <span id="tautulli-status" class="status-pill {{ 'connected' if settings.is_tautulli_configured else 'disconnected' }}" aria-live="polite">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span id="tautulli-status-text">Tautulli {{ 'Connected' if settings.is_tautulli_configured else 'Not connected' }}</span>
+            </span>
+            <span
+                id="plex-index-status"
+                class="status-pill {{ 'pending' if index_status.state == 'building' else ('connected' if index_status.state == 'ready' else 'disconnected') }}"
+                aria-live="polite"
+            >
+                <span class="status-dot" aria-hidden="true"></span>
+                <span id="plex-index-status-text">Plex index {{ 'Building' if index_status.state == 'building' else 'Idle' }}</span>
+            </span>
         </div>
     </section>
 

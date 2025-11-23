@@ -5,14 +5,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import linear_kernel
+import numpy as np
 
 from app.services.generate_logging import get_generate_logger
 from app.services.plex_service import PlexService, get_plex_service
 
 
 LOGGER = get_generate_logger()
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
 
 def _extract_names(entries: Iterable) -> Set[str]:
@@ -48,8 +48,8 @@ class PlexIndex:
     def __init__(self, plex: PlexService) -> None:
         self.plex = plex
         self._profiles: Dict[int, PlexProfile] = {}
-        self._vectorizer: Optional[TfidfVectorizer] = None
-        self._summary_matrix = None
+        self._embedding_model = None
+        self._summary_matrix: np.ndarray | None = None
         self._lock = threading.RLock()
         self._latest_added: dict[str, datetime] = {}
         self._matrix_keys: list[int] = []
@@ -58,6 +58,29 @@ class PlexIndex:
         self._last_built_at: datetime | None = None
         self._last_started_at: datetime | None = None
         self._last_error: str | None = None
+
+    def _get_embedding_model(self):
+        with self._lock:
+            if self._embedding_model is not None:
+                return self._embedding_model
+
+            try:
+                from sentence_transformers import SentenceTransformer
+
+                self._embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("Failed to load embedding model")
+                raise
+
+            return self._embedding_model
+
+    def _encode_summaries(self, summaries: list[str]) -> np.ndarray:
+        model = self._get_embedding_model()
+        return model.encode(
+            summaries,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+        )
 
     def _build_profile(self, item) -> PlexProfile:
         directors = _extract_names(getattr(item, "directors", []) or [])
@@ -94,14 +117,17 @@ class PlexIndex:
                 keys.append(key)
 
         if not summaries:
-            self._vectorizer = None
             self._summary_matrix = None
             self._matrix_keys = []
             return
 
-        self._vectorizer = TfidfVectorizer(stop_words="english", max_features=8000)
-        self._summary_matrix = self._vectorizer.fit_transform(summaries)
-        self._matrix_keys = keys
+        try:
+            self._summary_matrix = self._encode_summaries(summaries)
+            self._matrix_keys = keys
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Failed to build summary embeddings")
+            self._summary_matrix = None
+            self._matrix_keys = []
 
     def _update_latest_added(self, profile: PlexProfile) -> None:
         if not profile.added_at:
@@ -202,17 +228,23 @@ class PlexIndex:
             return None
 
     def _plot_similarity_scores(self, source: PlexProfile) -> dict[int, float]:
-        if self._vectorizer is None or self._summary_matrix is None:
+        with self._lock:
+            matrix = self._summary_matrix
+            keys = list(self._matrix_keys)
+
+        if matrix is None or not keys:
             return {}
         if not source.summary:
             return {}
+
         try:
-            source_vec = self._vectorizer.transform([source.summary])
-            scores = linear_kernel(source_vec, self._summary_matrix).flatten()
+            source_embedding = self._encode_summaries([source.summary])[0]
+            scores = np.matmul(matrix, source_embedding)
         except Exception:
             LOGGER.exception("Failed to compute plot similarity")
             return {}
-        return {key: float(score) for key, score in zip(self._matrix_keys, scores)}
+
+        return {key: float(score) for key, score in zip(keys, scores)}
 
     def related_profiles(
         self, source: PlexProfile, limit: Optional[int] = None

@@ -53,6 +53,11 @@ class PlexIndex:
         self._lock = threading.RLock()
         self._latest_added: dict[str, datetime] = {}
         self._matrix_keys: list[int] = []
+        self._build_in_progress = False
+        self._has_built = False
+        self._last_built_at: datetime | None = None
+        self._last_started_at: datetime | None = None
+        self._last_error: str | None = None
 
     def _build_profile(self, item) -> PlexProfile:
         directors = _extract_names(getattr(item, "directors", []) or [])
@@ -107,6 +112,14 @@ class PlexIndex:
 
     def rebuild(self) -> None:
         with self._lock:
+            if self._build_in_progress:
+                LOGGER.info("Plex index rebuild already in progress")
+                return
+            self._build_in_progress = True
+            self._last_error = None
+            self._last_started_at = datetime.utcnow()
+
+        try:
             profiles: Dict[int, PlexProfile] = {}
             latest: dict[str, datetime] = {}
             for item in self.plex.iter_library_items("movie"):
@@ -121,9 +134,18 @@ class PlexIndex:
                 if profile.added_at:
                     latest["show"] = max(latest.get("show", profile.added_at), profile.added_at)
 
-            self._profiles = profiles
-            self._latest_added = latest
-            self._rebuild_text_matrix()
+            with self._lock:
+                self._profiles = profiles
+                self._latest_added = latest
+                self._rebuild_text_matrix()
+                self._build_in_progress = False
+                self._has_built = True
+                self._last_built_at = datetime.utcnow()
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                self._build_in_progress = False
+                self._last_error = str(exc)
+            raise
 
         LOGGER.info(
             "Rebuilt Plex metadata index",
@@ -154,6 +176,8 @@ class PlexIndex:
                 self._profiles[profile.rating_key] = profile
                 self._update_latest_added(profile)
             self._rebuild_text_matrix()
+            self._has_built = True
+            self._last_built_at = datetime.utcnow()
 
         LOGGER.info(
             "Indexed %s new Plex items", len(additions)
@@ -207,6 +231,23 @@ class PlexIndex:
         if plot_scores:
             candidates.sort(key=lambda p: plot_scores.get(p.rating_key, 0.0), reverse=True)
         return candidates
+
+    def status(self) -> dict[str, object]:
+        with self._lock:
+            if self._build_in_progress:
+                state = "building"
+            elif self._has_built:
+                state = "ready"
+            else:
+                state = "idle"
+
+            return {
+                "state": state,
+                "items_indexed": len(self._profiles),
+                "last_started_at": self._last_started_at.isoformat() if self._last_started_at else None,
+                "last_built_at": self._last_built_at.isoformat() if self._last_built_at else None,
+                "last_error": self._last_error,
+            }
 
 
 def profile_similarity(source: PlexProfile, target: PlexProfile, plot_score: float = 0.0) -> Tuple[float, dict[str, float]]:

@@ -48,6 +48,7 @@ RECOMMENDATION_CACHE: dict[str, object] = {
 }
 RECOMMENDATION_CACHE_LOCK = asyncio.Lock()
 RECOMMENDATION_REBUILD_TASK: asyncio.Task | None = None
+INDEX_REBUILD_TASK: asyncio.Task | None = None
 
 
 @app.middleware("http")
@@ -193,6 +194,10 @@ def _is_rebuild_running() -> bool:
     return RECOMMENDATION_REBUILD_TASK is not None and not RECOMMENDATION_REBUILD_TASK.done()
 
 
+def _is_index_rebuild_running() -> bool:
+    return INDEX_REBUILD_TASK is not None and not INDEX_REBUILD_TASK.done()
+
+
 async def _get_cached_recommendations() -> dict[str, object] | None:
     async with RECOMMENDATION_CACHE_LOCK:
         if RECOMMENDATION_CACHE["movies"] or RECOMMENDATION_CACHE["shows"]:
@@ -262,6 +267,25 @@ async def _run_recommendation_rebuild(force: bool = False) -> dict[str, object]:
     return await RECOMMENDATION_REBUILD_TASK
 
 
+def _schedule_index_rebuild() -> bool:
+    global INDEX_REBUILD_TASK
+    if _is_index_rebuild_running():
+        return True
+
+    async def _run_rebuild():
+        try:
+            index = get_plex_index()
+            await asyncio.to_thread(index.rebuild)
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Background Plex index rebuild failed")
+        finally:
+            global INDEX_REBUILD_TASK
+            INDEX_REBUILD_TASK = None
+
+    INDEX_REBUILD_TASK = asyncio.create_task(_run_rebuild())
+    return True
+
+
 async def _watch_recent_activity():
     while True:
         try:
@@ -322,8 +346,7 @@ async def startup_build_collections():
     # Run the expensive collection refresh in the background so startup
     # doesn't block the first page load after configuration.
     asyncio.create_task(asyncio.to_thread(build_collections))
-    index = get_plex_index()
-    asyncio.create_task(asyncio.to_thread(index.rebuild))
+    _schedule_index_rebuild()
     asyncio.create_task(refresh_recent_cache())
     asyncio.create_task(_watch_recent_activity())
     asyncio.create_task(_watch_library_additions())
@@ -335,6 +358,7 @@ async def dashboard(request: Request):
     shows = []
     recent_movies: list[dict[str, object]] = []
     recent_shows: list[dict[str, object]] = []
+    index_status: dict[str, object] = {"state": "idle"}
 
     if settings.is_plex_configured:
         try:
@@ -364,6 +388,12 @@ async def dashboard(request: Request):
             )
         except Exception:  # noqa: BLE001
             LOGGER.exception("Failed to load cached recommendations for dashboard")
+
+        try:
+            index = get_plex_index()
+            index_status = index.status()
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Failed to load Plex index status")
     WEB_LOGGER.info(
         "Rendering dashboard",
         extra={
@@ -382,6 +412,7 @@ async def dashboard(request: Request):
             "shows": shows,
             "recent_movies": recent_movies,
             "recent_shows": recent_shows,
+            "index_status": index_status,
         },
     )
 
@@ -462,16 +493,20 @@ async def refresh_plex_index():
     if not settings.is_plex_configured:
         raise HTTPException(status_code=400, detail="Plex is not configured")
     try:
+        _schedule_index_rebuild()
         index = get_plex_index()
-        await asyncio.wait_for(
-            asyncio.to_thread(index.rebuild), timeout=settings.recommendation_build_timeout_seconds
-        )
-        return {"status": "ok"}
-    except asyncio.TimeoutError as exc:
-        raise HTTPException(status_code=504, detail="Index refresh timed out") from exc
+        return index.status()
     except Exception as exc:  # noqa: BLE001
         LOGGER.exception("Failed to refresh Plex index")
         raise HTTPException(status_code=500, detail="Failed to refresh Plex index") from exc
+
+
+@app.get("/api/plex/index/status")
+async def plex_index_status():
+    if not settings.is_plex_configured:
+        raise HTTPException(status_code=400, detail="Plex is not configured")
+    index = get_plex_index()
+    return index.status()
 
 
 @app.post("/api/tautulli/config")

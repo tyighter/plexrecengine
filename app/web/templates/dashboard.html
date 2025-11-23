@@ -365,6 +365,14 @@
                         <span class="status-dot" aria-hidden="true"></span>
                         <span id="tautulli-status-text">Tautulli {{ 'Connected' if settings.is_tautulli_configured else 'Not connected' }}</span>
                     </span>
+                    <span
+                        id="plex-index-status"
+                        class="status-pill {{ 'pending' if index_status.state == 'building' else ('connected' if index_status.state == 'ready' else 'disconnected') }}"
+                        aria-live="polite"
+                    >
+                        <span class="status-dot" aria-hidden="true"></span>
+                        <span id="plex-index-status-text">Plex index {{ 'Building' if index_status.state == 'building' else 'Idle' }}</span>
+                    </span>
                 </div>
                 {% if settings.is_plex_configured %}
                 <p>Signed into Plex at {{ settings.plex_base_url }}. Build recommendations on demand or when the webhook is called after a watch.</p>
@@ -606,10 +614,13 @@
     const initialShows = {{ shows | tojson }};
     const initialRecentMovies = {{ recent_movies | tojson }};
     const initialRecentShows = {{ recent_shows | tojson }};
+    const initialIndexStatus = {{ index_status | tojson }};
     const plexStatusPill = document.getElementById('plex-status');
     const plexStatusText = document.getElementById('plex-status-text');
     const tautulliStatusPill = document.getElementById('tautulli-status');
     const tautulliStatusText = document.getElementById('tautulli-status-text');
+    const indexStatusPill = document.getElementById('plex-index-status');
+    const indexStatusText = document.getElementById('plex-index-status-text');
 
     function setConnectionStatus(pill, textEl, state, label) {
         if (!pill || !textEl) return;
@@ -630,6 +641,53 @@
         isTautulliConfigured ? 'connected' : 'disconnected',
         `Tautulli ${isTautulliConfigured ? 'Connected' : 'Not connected'}`,
     );
+    function setIndexStatus(status) {
+        if (!indexStatusPill || !indexStatusText) return;
+        const state = status?.state || 'idle';
+        const itemsIndexed = status?.items_indexed;
+        const lastBuiltAt = status?.last_built_at ? new Date(status.last_built_at) : null;
+        let pillState = 'disconnected';
+        let label = 'Plex index idle';
+        if (state === 'building') {
+            pillState = 'pending';
+            label = 'Plex index building...';
+        } else if (state === 'ready' || itemsIndexed) {
+            pillState = 'connected';
+            const timeText = lastBuiltAt ? ` · Updated ${lastBuiltAt.toLocaleString()}` : '';
+            label = `Plex index ready${timeText}`;
+        }
+        setConnectionStatus(indexStatusPill, indexStatusText, pillState, label);
+    }
+
+    setIndexStatus(initialIndexStatus);
+
+    async function loadIndexStatus() {
+        if (!isPlexConfigured) {
+            setIndexStatus({ state: 'idle' });
+            return;
+        }
+        try {
+            const response = await fetch('/api/plex/index/status');
+            if (!response.ok) return;
+            const status = await response.json();
+            setIndexStatus(status);
+            if (status?.state === 'building') {
+                indexStatus.textContent = 'Plex index is currently rebuilding...';
+            } else if (status?.state === 'ready') {
+                const updatedAt = status?.last_built_at ? new Date(status.last_built_at).toLocaleString() : null;
+                indexStatus.textContent = updatedAt
+                    ? `Index ready. Last updated ${updatedAt}.`
+                    : 'Index ready.';
+            }
+            if (status?.state === 'building') {
+                setTimeout(loadIndexStatus, 3000);
+            }
+        } catch (err) {
+            console.error('Unable to load Plex index status', err);
+        }
+    }
+
+    loadIndexStatus();
 
     syncRecommendationSettingsForm();
 
@@ -1086,6 +1144,7 @@
     refreshIndexButton?.addEventListener('click', async () => {
         if (!indexStatus) return;
         indexStatus.textContent = 'Refreshing Plex index...';
+        setIndexStatus({ state: 'building' });
         refreshIndexButton.disabled = true;
         try {
             const response = await fetch('/api/plex/index/refresh', { method: 'POST' });
@@ -1094,7 +1153,12 @@
                 indexStatus.textContent = error?.detail || 'Unable to refresh index right now.';
                 return;
             }
-            indexStatus.textContent = 'Index rebuilt. New titles will be indexed automatically too.';
+            const status = await response.json();
+            setIndexStatus(status);
+            indexStatus.textContent = 'Index rebuild running in the background. Updates will appear automatically.';
+            if (status?.state === 'building') {
+                setTimeout(loadIndexStatus, 2500);
+            }
         } catch (err) {
             indexStatus.textContent = 'Failed to refresh index. Please try again.';
         } finally {

@@ -252,6 +252,8 @@ class LetterboxdClient:
     def search_related(
         self, profile: MediaProfile, limit: int | None = 15
     ) -> List[MediaProfile]:
+        """Return TMDB-similar titles for a profile (excludes recommendations)."""
+
         max_results = limit if limit and limit > 0 else None
         recommendations: List[MediaProfile] = []
         seen_ids: set[int] = set()
@@ -279,23 +281,16 @@ class LetterboxdClient:
                 page += 1
             return results
 
-        sources = [
-            f"/{profile.media_type}/{profile.tmdb_id}/similar",
-            f"/{profile.media_type}/{profile.tmdb_id}/recommendations",
-        ]
-
-        for source in sources:
-            remaining = None if max_results is None else max_results - len(recommendations)
-            if remaining == 0:
+        source = f"/{profile.media_type}/{profile.tmdb_id}/similar"
+        remaining = max_results
+        candidate_ids = _fetch_candidates(source, remaining)
+        for tmdb_id in candidate_ids:
+            try:
+                recommendations.append(self.fetch_profile(tmdb_id, profile.media_type))
+            except Exception:
+                continue
+            if max_results and len(recommendations) >= max_results:
                 break
-            candidate_ids = _fetch_candidates(source, remaining)
-            for tmdb_id in candidate_ids:
-                try:
-                    recommendations.append(self.fetch_profile(tmdb_id, profile.media_type))
-                except Exception:
-                    continue
-                if max_results and len(recommendations) >= max_results:
-                    break
         return recommendations
 
 

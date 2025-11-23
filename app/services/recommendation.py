@@ -83,41 +83,21 @@ class RecommendationEngine:
             return []
         related_pool_limit = settings.related_pool_limit
         related: list[MediaProfile] = []
-        seen_tmdb_ids: set[int] = set()
 
-        plex_related_items = list(
-            self.plex.related_items(
-                item,
-                media_type=media_type,
-                limit=None if related_pool_limit == 0 else related_pool_limit,
-            )
+        related = self.letterboxd.search_related(
+            source_profile,
+            limit=None if related_pool_limit == 0 else related_pool_limit,
         )
-        if plex_related_items:
-            SCORING_LOGGER.info(
-                "Found %s related titles directly from Plex for %s",
-                len(plex_related_items),
-                source_label or "Unknown title",
-            )
-            for related_item in plex_related_items:
-                tmdb_id = self._tmdb_id_for_item(related_item, media_type)
-                if tmdb_id is None or tmdb_id in seen_tmdb_ids:
-                    continue
-                try:
-                    profile = self.letterboxd.fetch_profile(tmdb_id, media_type)
-                except Exception:
-                    continue
-                seen_tmdb_ids.add(tmdb_id)
-                related.append(profile)
 
         if not related:
             SCORING_LOGGER.info(
-                "No related titles found in Plex for %s; skipping recommendations",
+                "No related titles found in TMDB for %s; skipping recommendations",
                 source_label or "Unknown title",
             )
             return []
         else:
             SCORING_LOGGER.info(
-                "Using %s Plex-related titles (TMDB fallback skipped)",
+                "Using %s TMDB-related titles",
                 len(related),
             )
         scored = self._score_related(source_profile, related)

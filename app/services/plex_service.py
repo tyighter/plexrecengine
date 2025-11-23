@@ -345,6 +345,29 @@ class PlexService:
         )
         return shows
 
+    def iter_library_items(self, section_type: str):
+        for section in self._library_sections():
+            if section.TYPE != section_type:
+                continue
+            try:
+                for item in section.all():
+                    yield item
+            except Exception:
+                LOGGER.exception(
+                    "Failed to iterate Plex library items", extra={"section": getattr(section, "title", None)}
+                )
+
+    def recently_added(self, media_type: str, max_results: int = 50):
+        for section in self._library_sections():
+            if section.TYPE != media_type:
+                continue
+            try:
+                yield from section.search(sort="addedAt:desc", maxresults=max_results)
+            except Exception:
+                LOGGER.exception(
+                    "Failed to load recently added items", extra={"section": getattr(section, "title", None)}
+                )
+
     def search_library(self, section_type: str, query: str):
         for section in self._library_sections():
             if section.TYPE != section_type:

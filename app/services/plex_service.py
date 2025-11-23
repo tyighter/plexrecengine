@@ -534,6 +534,40 @@ class PlexService:
             },
         )
 
+    def related_items(self, item, media_type: str, limit: Optional[int] = None):
+        """Return Plex-provided related items for a given media item."""
+
+        if item is None:
+            return []
+
+        try:
+            related_fn = getattr(item, "related", None)
+            if callable(related_fn):
+                related_items = list(related_fn())
+            else:
+                LOGGER.warning(
+                    "Plex item does not expose related()", extra={"title": getattr(item, "title", None)}
+                )
+                return []
+        except Exception:
+            LOGGER.exception(
+                "Failed to fetch Plex related items", extra={"title": getattr(item, "title", None)}
+            )
+            return []
+
+        filtered: list = []
+        for candidate in related_items:
+            if media_type and getattr(candidate, "type", None) != media_type:
+                continue
+            filtered.append(candidate)
+            if limit and len(filtered) >= limit:
+                break
+
+        LOGGER.debug(
+            "Loaded Plex related items", extra={"title": getattr(item, "title", None), "count": len(filtered)}
+        )
+        return filtered
+
     def poster_url(self, item) -> Optional[str]:
         """Return a usable poster URL for any Plex item.
 

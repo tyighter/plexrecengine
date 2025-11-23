@@ -33,17 +33,23 @@ class RecommendationEngine:
         self.plex = plex
         self.letterboxd = letterboxd
 
-    def _profile_for_item(self, item, media_type: str) -> Optional[MediaProfile]:
-        guid = item.guid or ""
+    def _tmdb_id_for_item(self, item, media_type: str) -> Optional[int]:
+        guid = getattr(item, "guid", "") or ""
         tmdb_prefix = "tmdb://"
         tmdb_id = None
         if guid.startswith(tmdb_prefix):
             try:
                 tmdb_id = int(guid[len(tmdb_prefix) :].split("?")[0])
             except ValueError:
-                pass
+                tmdb_id = None
         if tmdb_id is None:
-            tmdb_id = self.letterboxd.search_tmdb_id(item.title, media_type, getattr(item, "year", None))
+            tmdb_id = self.letterboxd.search_tmdb_id(
+                getattr(item, "title", ""), media_type, getattr(item, "year", None)
+            )
+        return tmdb_id
+
+    def _profile_for_item(self, item, media_type: str) -> Optional[MediaProfile]:
+        tmdb_id = self._tmdb_id_for_item(item, media_type)
         if tmdb_id is None:
             return None
         return self.letterboxd.fetch_profile(tmdb_id, media_type)
@@ -76,16 +82,49 @@ class RecommendationEngine:
             SCORING_LOGGER.info("No profile available; skipping scoring for this item")
             return []
         related_pool_limit = settings.related_pool_limit
-        related = list(
-            self.letterboxd.search_related(
-                source_profile, limit=None if related_pool_limit == 0 else related_pool_limit
+        related: list[MediaProfile] = []
+        seen_tmdb_ids: set[int] = set()
+
+        plex_related_items = list(
+            self.plex.related_items(
+                item,
+                media_type=media_type,
+                limit=None if related_pool_limit == 0 else related_pool_limit,
             )
         )
-        SCORING_LOGGER.info(
-            "Found %s related movies for %s",
-            len(related),
-            source_label or "Unknown title",
-        )
+        if plex_related_items:
+            SCORING_LOGGER.info(
+                "Found %s related titles directly from Plex for %s",
+                len(plex_related_items),
+                source_label or "Unknown title",
+            )
+            for related_item in plex_related_items:
+                tmdb_id = self._tmdb_id_for_item(related_item, media_type)
+                if tmdb_id is None or tmdb_id in seen_tmdb_ids:
+                    continue
+                try:
+                    profile = self.letterboxd.fetch_profile(tmdb_id, media_type)
+                except Exception:
+                    continue
+                seen_tmdb_ids.add(tmdb_id)
+                related.append(profile)
+
+        if not related:
+            related = list(
+                self.letterboxd.search_related(
+                    source_profile, limit=None if related_pool_limit == 0 else related_pool_limit
+                )
+            )
+            SCORING_LOGGER.info(
+                "Found %s related movies from TMDB for %s",
+                len(related),
+                source_label or "Unknown title",
+            )
+        else:
+            SCORING_LOGGER.info(
+                "Using %s Plex-related titles (TMDB fallback skipped)",
+                len(related),
+            )
         scored = self._score_related(source_profile, related)
         library_name = (
             settings.plex_movie_library

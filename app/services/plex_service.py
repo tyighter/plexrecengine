@@ -545,10 +545,7 @@ class PlexService:
             if callable(related_fn):
                 related_items = list(related_fn())
             else:
-                LOGGER.warning(
-                    "Plex item does not expose related()", extra={"title": getattr(item, "title", None)}
-                )
-                return []
+                related_items = self._fetch_related_via_metadata(item)
         except Exception:
             LOGGER.exception(
                 "Failed to fetch Plex related items", extra={"title": getattr(item, "title", None)}
@@ -567,6 +564,84 @@ class PlexService:
             "Loaded Plex related items", extra={"title": getattr(item, "title", None), "count": len(filtered)}
         )
         return filtered
+
+    def _fetch_related_via_metadata(self, item):
+        title = getattr(item, "title", None)
+        key = getattr(item, "key", None)
+
+        if not key:
+            LOGGER.warning(
+                "Plex item is missing key for related lookup",
+                extra={"title": title},
+            )
+            return []
+
+        related_items: list = []
+        try:
+            related_items = list(self.client.fetchItems(f"{key}/related"))
+            if related_items:
+                LOGGER.debug(
+                    "Fetched related items via fallback endpoint",
+                    extra={"title": title, "count": len(related_items)},
+                )
+                return related_items
+        except Exception:
+            LOGGER.exception(
+                "Failed to fetch Plex related items via fallback",
+                extra={"title": title},
+            )
+
+        try:
+            metadata_xml = self.client.query(key)
+        except Exception:
+            LOGGER.exception(
+                "Failed to query Plex metadata for related items",
+                extra={"title": title},
+            )
+            return []
+
+        related_paths = []
+        for element in metadata_xml.iter():
+            element_key = element.attrib.get("key") if hasattr(element, "attrib") else None
+            if not element_key:
+                continue
+            if "/related" not in element_key:
+                continue
+            if element_key not in related_paths:
+                related_paths.append(element_key)
+
+        if not related_paths:
+            LOGGER.debug(
+                "No related paths discovered in metadata XML",
+                extra={"title": title},
+            )
+            return []
+
+        for related_path in related_paths:
+            path = related_path
+            if not path.startswith("/"):
+                path = f"{key}/{path}".replace("//", "/", 1)
+            try:
+                related_items = list(self.client.fetchItems(path))
+            except Exception:
+                LOGGER.exception(
+                    "Failed to fetch Plex related items from metadata path",
+                    extra={"title": title, "path": path},
+                )
+                continue
+
+            if related_items:
+                LOGGER.debug(
+                    "Fetched related items from metadata XML path",
+                    extra={"title": title, "path": path, "count": len(related_items)},
+                )
+                return related_items
+
+        LOGGER.debug(
+            "No related items returned from any metadata paths",
+            extra={"title": title, "paths": related_paths},
+        )
+        return []
 
     def poster_url(self, item) -> Optional[str]:
         """Return a usable poster URL for any Plex item.

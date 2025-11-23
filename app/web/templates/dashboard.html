@@ -368,12 +368,9 @@
                 </div>
                 {% if settings.is_plex_configured %}
                 <p>Signed into Plex at {{ settings.plex_base_url }}. Build recommendations on demand or when the webhook is called after a watch.</p>
-                <p class="muted">Using movie library <strong>{{ settings.plex_movie_library }}</strong> and TV library <strong>{{ settings.plex_show_library }}</strong>.</p>
+                <p class="muted">Using movie library <strong>{{ settings.plex_movie_library }}</strong> and TV library <strong>{{ settings.plex_show_library }}</strong>. Recommendations now rely entirely on Plex metadata and plot similarity.</p>
                 {% else %}
-                <p class="muted">Plex is not configured yet. Use the settings modal to connect your server and add TMDB.</p>
-                {% endif %}
-                {% if not settings.tmdb_api_key %}
-                <p class="muted"><strong>TMDB API key is missing.</strong> Add your key so we can fetch metadata and compute recommendations.</p>
+                <p class="muted">Plex is not configured yet. Use the settings modal to connect your server.</p>
                 {% endif %}
             </div>
             <div>
@@ -409,7 +406,7 @@
                 <p id="recommendation-status" class="muted">Generate fresh recommendations when you're ready.</p>
             </div>
             <div>
-                <button id="generate-recommendations" class="primary" role="button" {% if not settings.is_plex_configured or not settings.tmdb_api_key %}disabled{% endif %}>Generate Recommendations</button>
+                <button id="generate-recommendations" class="primary" role="button" {% if not settings.is_plex_configured %}disabled{% endif %}>Generate Recommendations</button>
             </div>
         </header>
         <div class="grid-two-column">
@@ -481,19 +478,6 @@
             </label>
             <p id="tautulli-user-status" class="muted"></p>
         </section>
-        <section id="tmdb-config" aria-label="TMDB configuration">
-            <p><strong>TMDB API Key</strong> {% if settings.tmdb_api_key %}<span class="muted">Configured</span>{% else %}<span class="muted">Not configured</span>{% endif %}</p>
-            <p class="muted">We use TMDB to fetch metadata and recommendations. Store your key locally for reuse.</p>
-            <form id="tmdb-form">
-                <label for="tmdb-api-key">API Key</label>
-                <input id="tmdb-api-key" name="tmdb-api-key" type="text" required placeholder="Paste your TMDB API key" />
-                <p id="tmdb-inline-status" class="muted"></p>
-                <footer>
-                    <button type="submit">Save Key</button>
-                </footer>
-            </form>
-            <p id="tmdb-status" class="muted"></p>
-        </section>
         <section
             id="recommendation-config"
             aria-label="Recommendation configuration"
@@ -535,6 +519,14 @@
                 <p id="recommendation-settings-status" class="muted"></p>
             </footer>
         </section>
+        <section id="index-controls" aria-label="Index management">
+            <p><strong>Plex metadata index</strong></p>
+            <p class="muted">Rebuild the Plex-only metadata and plot index on demand. The service will also refresh automatically when it detects new additions.</p>
+            <footer>
+                <button id="refresh-index" role="button">Refresh Index</button>
+                <p id="index-status" class="muted"></p>
+            </footer>
+        </section>
     </article>
 </dialog>
 <script>
@@ -570,16 +562,13 @@
     const settingsDialog = document.getElementById('settings-dialog');
     const openSettings = document.getElementById('open-settings');
     const closeSettings = document.getElementById('close-settings');
-    const tmdbForm = document.getElementById('tmdb-form');
-    const tmdbInput = document.getElementById('tmdb-api-key');
-    const tmdbStatus = document.getElementById('tmdb-status');
-    const tmdbInlineStatus = document.getElementById('tmdb-inline-status');
-    const tmdbConfigured = "{{ 'true' if settings.tmdb_api_key else 'false' }}" === "true";
     const recommendationConfigSection = document.getElementById('recommendation-config');
     const relatedPoolInput = document.getElementById('related-pool-limit');
     const allowWatchedInput = document.getElementById('allow-watched');
     const collectionOrderSelect = document.getElementById('collection-order');
     const recommendationSettingsStatus = document.getElementById('recommendation-settings-status');
+    const refreshIndexButton = document.getElementById('refresh-index');
+    const indexStatus = document.getElementById('index-status');
 
     function syncRecommendationSettingsForm() {
         const poolValue =
@@ -663,7 +652,7 @@
                 article.appendChild(img);
             }
             const text = document.createElement('p');
-            text.innerHTML = `<strong>${item.title}</strong><br><small>Score: ${item.score?.toFixed?.(2) ?? item.score ?? 'N/A'}${item.tmdb_rating ? ` · TMDB: ${item.tmdb_rating}` : ''}</small>`;
+            text.innerHTML = `<strong>${item.title}</strong><br><small>Score: ${item.score?.toFixed?.(2) ?? item.score ?? 'N/A'}</small>`;
             article.appendChild(text);
             const tooltip = document.createElement('div');
             tooltip.className = 'poster-tooltip';
@@ -711,8 +700,7 @@
                     ['directors', 'Director match'],
                     ['writers', 'Writer match'],
                     ['genres', 'Genre match'],
-                    ['keywords', 'Keyword match'],
-                    ['tmdb_rating', 'TMDB bonus'],
+                    ['plot', 'Plot similarity'],
                 ];
                 labels.forEach(([key, label]) => {
                     const value = item.score_breakdown[key];
@@ -1037,8 +1025,6 @@
     });
 
     openSettings?.addEventListener('click', () => {
-        tmdbInput.value = '';
-        tmdbInlineStatus.textContent = '';
         if (tautulliUserSelect && tautulliUsersSection) {
             tautulliUserSelect.value = tautulliUsersSection.dataset.currentUser || '';
         }
@@ -1097,30 +1083,22 @@
         }
     });
 
-    tmdbForm?.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        tmdbInlineStatus.textContent = 'Saving key...';
+    refreshIndexButton?.addEventListener('click', async () => {
+        if (!indexStatus) return;
+        indexStatus.textContent = 'Refreshing Plex index...';
+        refreshIndexButton.disabled = true;
         try {
-            const response = await fetch('/api/tmdb/key', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ apiKey: tmdbInput.value.trim() }),
-            });
+            const response = await fetch('/api/plex/index/refresh', { method: 'POST' });
             if (!response.ok) {
                 const error = await response.json();
-                tmdbInlineStatus.textContent = error?.detail || 'Unable to save key.';
+                indexStatus.textContent = error?.detail || 'Unable to refresh index right now.';
                 return;
             }
-            tmdbInlineStatus.textContent = 'Saved! Reload the page to start building recommendations.';
-            tmdbStatus.textContent = 'TMDB key saved locally. Reload to apply changes.';
-            if (!tmdbConfigured) {
-                tmdbStatus.textContent += ' Recommendations will load after reload.';
-            }
-            setTimeout(() => settingsDialog.close(), 600);
+            indexStatus.textContent = 'Index rebuilt. New titles will be indexed automatically too.';
         } catch (err) {
-            tmdbInlineStatus.textContent = 'Failed to save key. Please try again.';
+            indexStatus.textContent = 'Failed to refresh index. Please try again.';
+        } finally {
+            refreshIndexButton.disabled = false;
         }
     });
 

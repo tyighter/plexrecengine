@@ -21,7 +21,7 @@ from app.services.plex_auth import (
     save_library_preferences,
     start_login,
 )
-from app.services.letterboxd_client import get_letterboxd_client
+from app.services.plex_index import get_plex_index
 from app.services.plex_service import get_plex_service
 from app.services.recommendation import RecommendationEngine
 from app.services.tautulli_service import list_tautulli_users
@@ -213,8 +213,9 @@ async def _generate_recommendations(force: bool = False) -> dict[str, object]:
 
     def build_recommendations():
         plex = get_plex_service()
-        letterboxd = get_letterboxd_client()
-        engine = RecommendationEngine(plex, letterboxd)
+        index = get_plex_index()
+        index.rebuild()
+        engine = RecommendationEngine(plex, index)
         return engine.build_movie_collection(), engine.build_show_collection()
 
     movies, shows = await asyncio.to_thread(build_recommendations)
@@ -274,7 +275,7 @@ async def _watch_recent_activity():
             LAST_SEEN_RECENT_KEYS.clear()
             LAST_SEEN_RECENT_KEYS.update(current_keys)
 
-            if new_keys and settings.tmdb_api_key:
+            if new_keys:
                 LOGGER.info(
                     "Detected %s new recently watched items; rebuilding recommendations",
                     len(new_keys),
@@ -285,25 +286,47 @@ async def _watch_recent_activity():
         await asyncio.sleep(120)
 
 
+async def _watch_library_additions():
+    while True:
+        try:
+            if not settings.is_plex_configured:
+                await asyncio.sleep(300)
+                continue
+
+            index = get_plex_index()
+            added = await asyncio.to_thread(index.refresh_recent_additions, 100)
+            if added:
+                LOGGER.info(
+                    "Discovered %s new Plex items; refreshing recommendations and index",
+                    added,
+                )
+                _schedule_recommendation_rebuild(force=True)
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Background library addition watcher failed")
+        await asyncio.sleep(300)
+
+
 @app.on_event("startup")
 async def startup_build_collections():
     WEB_LOGGER.info("Web UI starting up and ready to serve requests")
-    if not settings.is_plex_configured or not settings.tmdb_api_key:
+    if not settings.is_plex_configured:
         return
 
     def build_collections():
         plex = get_plex_service()
-        letterboxd = get_letterboxd_client()
-        engine = RecommendationEngine(plex, letterboxd)
+        index = get_plex_index()
+        engine = RecommendationEngine(plex, index)
         engine.build_movie_collection()
         engine.build_show_collection()
 
     # Run the expensive collection refresh in the background so startup
     # doesn't block the first page load after configuration.
     asyncio.create_task(asyncio.to_thread(build_collections))
-    if settings.is_plex_configured:
-        asyncio.create_task(refresh_recent_cache())
+    index = get_plex_index()
+    asyncio.create_task(asyncio.to_thread(index.rebuild))
+    asyncio.create_task(refresh_recent_cache())
     asyncio.create_task(_watch_recent_activity())
+    asyncio.create_task(_watch_library_additions())
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -325,7 +348,7 @@ async def dashboard(request: Request):
         except Exception:  # noqa: BLE001
             LOGGER.exception("Failed to load recent activity for dashboard")
 
-    if settings.is_plex_configured and settings.tmdb_api_key:
+    if settings.is_plex_configured:
         try:
             cached_recs = await asyncio.wait_for(
                 _get_cached_recommendations(), timeout=settings.dashboard_timeout_seconds
@@ -434,6 +457,23 @@ async def update_preferences(payload: PlexPreferences):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.post("/api/plex/index/refresh")
+async def refresh_plex_index():
+    if not settings.is_plex_configured:
+        raise HTTPException(status_code=400, detail="Plex is not configured")
+    try:
+        index = get_plex_index()
+        await asyncio.wait_for(
+            asyncio.to_thread(index.rebuild), timeout=settings.recommendation_build_timeout_seconds
+        )
+        return {"status": "ok"}
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="Index refresh timed out") from exc
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.exception("Failed to refresh Plex index")
+        raise HTTPException(status_code=500, detail="Failed to refresh Plex index") from exc
+
+
 @app.post("/api/tautulli/config")
 async def set_tautulli_config(payload: TautulliConfigRequest):
     base_url = str(payload.baseUrl).rstrip("/")
@@ -528,8 +568,9 @@ async def webhook_trigger():
     if settings.is_plex_configured:
         invalidate_recent_cache()
         plex = get_plex_service()
-        letterboxd = get_letterboxd_client()
-        engine = RecommendationEngine(plex, letterboxd)
+        index = get_plex_index()
+        index.rebuild()
+        engine = RecommendationEngine(plex, index)
         engine.build_movie_collection()
         engine.build_show_collection()
         _schedule_recommendation_rebuild(force=True)
@@ -543,9 +584,6 @@ async def build_recommendations():
     if not settings.is_plex_configured:
         LOGGER.warning("Plex configuration missing; rejecting recommendation request")
         raise HTTPException(status_code=400, detail="Plex is not configured")
-    if not settings.tmdb_api_key:
-        LOGGER.warning("TMDB API key missing; rejecting recommendation request")
-        raise HTTPException(status_code=400, detail="TMDB API key is missing")
 
     LOGGER.info("Rebuilding recommendations immediately")
     try:
@@ -566,7 +604,7 @@ async def build_recommendations():
 
 @app.get("/api/recommendations")
 async def cached_recommendations():
-    if not settings.is_plex_configured or not settings.tmdb_api_key:
+    if not settings.is_plex_configured:
         return {"movies": [], "shows": []}
     try:
         cached = await asyncio.wait_for(

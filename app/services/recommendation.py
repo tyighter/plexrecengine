@@ -6,7 +6,7 @@ from typing import Iterable, List, Optional, Tuple
 
 from app.config import settings
 from app.services.generate_logging import get_generate_logger, get_scoring_logger
-from app.services.letterboxd_client import LetterboxdClient, MediaProfile, profile_similarity
+from app.services.plex_index import PlexIndex, PlexProfile, profile_similarity
 from app.services.plex_service import PlexService
 
 
@@ -17,7 +17,6 @@ class Recommendation:
     poster: str | None
     rating_key: int
     year: int | None = None
-    tmdb_rating: float | None = None
     source_title: str | None = None
     reason: str | None = None
     score_breakdown: dict[str, float] | None = None
@@ -29,39 +28,24 @@ SCORING_LOGGER = get_scoring_logger()
 
 
 class RecommendationEngine:
-    def __init__(self, plex: PlexService, letterboxd: LetterboxdClient) -> None:
+    def __init__(self, plex: PlexService, index: PlexIndex) -> None:
         self.plex = plex
-        self.letterboxd = letterboxd
+        self.index = index
 
-    def _tmdb_id_for_item(self, item, media_type: str) -> Optional[int]:
-        guid = getattr(item, "guid", "") or ""
-        tmdb_prefix = "tmdb://"
-        tmdb_id = None
-        if guid.startswith(tmdb_prefix):
-            try:
-                tmdb_id = int(guid[len(tmdb_prefix) :].split("?")[0])
-            except ValueError:
-                tmdb_id = None
-        if tmdb_id is None:
-            tmdb_id = self.letterboxd.search_tmdb_id(
-                getattr(item, "title", ""), media_type, getattr(item, "year", None)
-            )
-        return tmdb_id
-
-    def _profile_for_item(self, item, media_type: str) -> Optional[MediaProfile]:
-        tmdb_id = self._tmdb_id_for_item(item, media_type)
-        if tmdb_id is None:
-            return None
-        return self.letterboxd.fetch_profile(tmdb_id, media_type)
+    def _profile_for_item(self, item, media_type: str) -> Optional[PlexProfile]:
+        profile = self.index.profile_for_item(item)
+        if profile and profile.media_type == media_type:
+            return profile
+        return None
 
     def _score_related(
-        self, source_profile: MediaProfile, candidates: Iterable[MediaProfile]
-    ) -> List[Tuple[MediaProfile, float, dict[str, float]]]:
+        self, source_profile: PlexProfile, candidates: Iterable[PlexProfile]
+    ) -> List[Tuple[PlexProfile, float, dict[str, float]]]:
         scored = []
+        plot_scores = self.index._plot_similarity_scores(source_profile)
         for candidate in candidates:
-            if candidate.tmdb_id == source_profile.tmdb_id:
-                continue
-            score, breakdown = profile_similarity(source_profile, candidate)
+            plot_score = plot_scores.get(candidate.rating_key, 0.0)
+            score, breakdown = profile_similarity(source_profile, candidate, plot_score)
             if score > 0:
                 scored.append((candidate, score, breakdown))
         scored.sort(key=lambda pair: pair[1], reverse=True)
@@ -81,23 +65,23 @@ class RecommendationEngine:
         if source_profile is None:
             SCORING_LOGGER.info("No profile available; skipping scoring for this item")
             return []
-        related_pool_limit = settings.related_pool_limit
-        related: list[MediaProfile] = []
+        related_pool_limit = settings.related_pool_limit or 0
+        related: list[PlexProfile] = []
 
-        related = self.letterboxd.search_related(
+        related = self.index.related_profiles(
             source_profile,
             limit=None if related_pool_limit == 0 else related_pool_limit,
         )
 
         if not related:
             SCORING_LOGGER.info(
-                "No related titles found in TMDB for %s; skipping recommendations",
+                "No related Plex titles found for %s; skipping recommendations",
                 source_label or "Unknown title",
             )
             return []
         else:
             SCORING_LOGGER.info(
-                "Using %s TMDB-related titles",
+                "Using %s Plex-related titles",
                 len(related),
             )
         scored = self._score_related(source_profile, related)
@@ -107,13 +91,15 @@ class RecommendationEngine:
             else settings.plex_show_library
         ) or "Plex library"
 
-        availability: List[Tuple[MediaProfile, float, dict[str, float], list]] = []
+        availability: List[Tuple[PlexProfile, float, dict[str, float], list]] = []
         available_in_library = 0
         for profile, score, breakdown in scored:
-            plex_matches = list(
-                self.plex.search_library(section_type=media_type, query=profile.title)
+            plex_item = self.plex.fetch_item(
+                profile.rating_key,
+                extra={"source": "related_pool"},
             )
-            if plex_matches:
+            plex_matches = [plex_item] if plex_item else []
+            if plex_item:
                 available_in_library += 1
             availability.append((profile, score, breakdown, plex_matches))
 
@@ -134,10 +120,10 @@ class RecommendationEngine:
                     f"{key}={value:.2f}" for key, value in sorted(breakdown.items())
                 )
                 SCORING_LOGGER.info(
-                    "Score #%s: %s (tmdb_id=%s) score=%.2f [%s]%s",
+                    "Score #%s: %s (rating_key=%s) score=%.2f [%s]%s",
                     rank,
                     profile.title,
-                    profile.tmdb_id,
+                    profile.rating_key,
                     score,
                     breakdown_text,
                     " — available in Plex" if plex_matches else "",
@@ -149,9 +135,8 @@ class RecommendationEngine:
             if not plex_matches:
                 skipped_not_in_library.append(profile.title)
                 SCORING_LOGGER.info(
-                    "Skipping %s (tmdb_id=%s) — not found in Plex library",
+                    "Skipping %s — not found in Plex library",
                     profile.title,
-                    profile.tmdb_id,
                 )
                 continue
 
@@ -171,7 +156,6 @@ class RecommendationEngine:
                 "writers": sorted(source_profile.writers & profile.writers),
                 "cast": sorted(source_profile.cast & profile.cast),
                 "genres": sorted(source_profile.genres & profile.genres),
-                "keywords": sorted(source_profile.keywords & profile.keywords),
             }
 
             def describe(values: list[str], label: str) -> str:
@@ -189,19 +173,13 @@ class RecommendationEngine:
             reason_parts = [
                 f"Recommended because you recently watched {source_label or 'a similar title'}",
             ]
-            if profile.tmdb_rating:
-                reason_parts.append(
-                    f"It pairs well with {profile.title} (TMDB {profile.tmdb_rating:.1f})"
-                )
-            else:
-                reason_parts.append(f"It pairs well with {profile.title}")
+            reason_parts.append(f"It pairs well with {profile.title}")
 
             shared_traits = [
                 describe(overlap["directors"], "shares director"),
                 describe(overlap["cast"], "features"),
                 describe(overlap["writers"], "writer"),
                 describe(overlap["genres"], "genre"),
-                describe(overlap["keywords"], "keyword"),
             ]
             shared_traits = [part for part in shared_traits if part]
             if shared_traits:
@@ -215,7 +193,6 @@ class RecommendationEngine:
                     poster=self.plex.poster_url(plex_item),
                     rating_key=plex_item.ratingKey,
                     year=getattr(plex_item, "year", None),
-                    tmdb_rating=profile.tmdb_rating,
                     source_title=source_title,
                     reason=". ".join(reason_parts),
                     score_breakdown=breakdown,

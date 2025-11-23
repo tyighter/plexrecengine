@@ -27,6 +27,7 @@ class MediaProfile:
     writers: Set[str]
     genres: Set[str]
     keywords: Set[str]
+    letterboxd_keywords: Set[str]
     tmdb_rating: Optional[float]
     letterboxd_rating: Optional[float]
     letterboxd_vote_count: Optional[int]
@@ -42,6 +43,7 @@ class MediaProfile:
             writers=set(),
             genres=set(),
             keywords=set(),
+            letterboxd_keywords=set(),
             tmdb_rating=None,
             letterboxd_rating=None,
             letterboxd_vote_count=None,
@@ -58,17 +60,20 @@ class LetterboxdClient:
         if settings.letterboxd_session:
             self.letterboxd.cookies.set("letterboxd", settings.letterboxd_session, domain=".letterboxd.com")
 
-    def _fetch_letterboxd_score(self, title: str, year: Optional[int]) -> Tuple[Optional[float], Optional[int]]:
+    def _fetch_letterboxd_score(
+        self, title: str, year: Optional[int]
+    ) -> Tuple[Optional[float], Optional[int], Optional[str], Set[str]]:
         response = self.letterboxd.get("https://letterboxd.com/search/films/", params={"q": title})
         if response.status_code == 403 or self._is_login_response(response):
             logger.warning("Letterboxd search blocked (status=%s, url=%s)", response.status_code, response.url)
-            return None, None
+            return None, None, None, set()
         if response.status_code != 200:
-            return None, None
+            return None, None, None, set()
         soup = BeautifulSoup(response.text, "html.parser")
         best_rating: Optional[float] = None
         best_votes: Optional[int] = None
         candidate_slug: Optional[str] = None
+        keywords: Set[str] = set()
         for li in soup.select("li[data-film-slug]"):
             try:
                 film_year = int(li.get("data-film-year") or 0)
@@ -94,20 +99,25 @@ class LetterboxdClient:
                 break
         if best_rating is None and candidate_slug:
             logger.info("Falling back to film page scrape for '%s'", candidate_slug)
-            best_rating, best_votes = self._fetch_film_detail(candidate_slug)
-        return best_rating, best_votes
+        if candidate_slug:
+            page_rating, page_votes, keywords = self._fetch_film_detail(candidate_slug)
+            best_rating = best_rating if best_rating is not None else page_rating
+            best_votes = best_votes if best_votes is not None else page_votes
+        return best_rating, best_votes, candidate_slug, keywords
 
-    def _fetch_film_detail(self, slug: str) -> Tuple[Optional[float], Optional[int]]:
+    def _fetch_film_detail(self, slug: str) -> Tuple[Optional[float], Optional[int], Set[str]]:
         normalized_slug = slug if slug.startswith("/") else f"/{slug}"
         film_url = f"https://letterboxd.com{normalized_slug.rstrip('/')}/"
         response = self.letterboxd.get(film_url)
         if response.status_code == 403 or self._is_login_response(response):
             logger.warning("Letterboxd film page blocked (status=%s, url=%s)", response.status_code, response.url)
-            return None, None
+            return None, None, set()
         if response.status_code != 200:
-            return None, None
+            return None, None, set()
         soup = BeautifulSoup(response.text, "html.parser")
-        return self._extract_rating_from_film_page(soup)
+        rating, votes = self._extract_rating_from_film_page(soup)
+        keywords = self._extract_keywords_from_film_page(soup)
+        return rating, votes, keywords
 
     def _find_letterboxd_slug(self, title: str, year: Optional[int] = None) -> Optional[str]:
         response = self.letterboxd.get("https://letterboxd.com/search/films/", params={"q": title})
@@ -227,6 +237,42 @@ class LetterboxdClient:
         return rating, votes
 
     @staticmethod
+    def _extract_keywords_from_film_page(soup: BeautifulSoup) -> Set[str]:
+        keywords: Set[str] = set()
+
+        def _add_keyword(value: str) -> None:
+            cleaned = value.strip()
+            if cleaned:
+                keywords.add(cleaned)
+
+        for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+            try:
+                data = json.loads(script.string or "{}")
+            except json.JSONDecodeError:
+                continue
+            entries = data if isinstance(data, list) else [data]
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                kw_value = entry.get("keywords")
+                if isinstance(kw_value, list):
+                    for kw in kw_value:
+                        if isinstance(kw, str):
+                            _add_keyword(kw)
+                elif isinstance(kw_value, str):
+                    for kw in kw_value.split(","):
+                        _add_keyword(kw)
+        if keywords:
+            return keywords
+
+        for anchor in soup.select("a[href*='/keyword/']"):
+            text = anchor.get_text(strip=True)
+            if text:
+                keywords.add(text)
+
+        return keywords
+
+    @staticmethod
     def _parse_float(value: Optional[str]) -> Optional[float]:
         if value is None:
             return None
@@ -281,7 +327,7 @@ class LetterboxdClient:
         keyword_entries = keywords_resp.get("keywords") or keywords_resp.get("results") or []
         keywords = {kw.get("name", "") for kw in keyword_entries if kw.get("name")}
 
-        rating, votes = self._fetch_letterboxd_score(title, release_year)
+        rating, votes, _slug, letterboxd_keywords = self._fetch_letterboxd_score(title, release_year)
 
         tmdb_rating = None
         try:
@@ -299,6 +345,7 @@ class LetterboxdClient:
             writers=writers,
             genres=genres,
             keywords=keywords,
+            letterboxd_keywords=letterboxd_keywords,
             tmdb_rating=tmdb_rating,
             letterboxd_rating=rating,
             letterboxd_vote_count=votes,
@@ -408,6 +455,7 @@ def profile_similarity(
         "writers": 20.0 * len(source.writers & target.writers),
         "genres": 10.0 * len(source.genres & target.genres),
         "keywords": 10.0 * len(source.keywords & target.keywords),
+        "letterboxd_keywords": 15.0 * len(source.letterboxd_keywords & target.letterboxd_keywords),
         "tmdb_rating": _tmdb_score(target.tmdb_rating),
     }
     total = round(sum(breakdown.values()), 2)

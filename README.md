@@ -1,58 +1,53 @@
 # Plex Recommendation Engine
 
-A containerized FastAPI app that builds Plex collections based on your recently watched movies and shows using TMDB/Letterboxd-like metadata. On startup (and whenever the webhook is invoked), the app:
+A FastAPI app and lightweight dashboard that keeps two Plex collections (`Recommended Movies` and `Recommended Shows`) fresh based on what people are watching. Recommendations are generated from Plex history (via Plex directly or Tautulli), TMDB metadata, and optional Letterboxd signals. The app:
 
-- Looks at your 10 most recently watched movies and fetches unwatched, related titles based on cast, crew, keywords, and genres.
-- Looks at your 10 most recently watched shows (one entry per show) and recommends unwatched shows.
-- Updates two Plex collections: `Recommended Movies` and `Recommended Shows`.
-- Serves a simple web UI on port **5555** that displays the recommended posters.
+- Watches recent movie and show activity, refreshing recommendations in the background when something new is watched or added.
+- Lets you choose the Plex movie/show libraries and the Plex or Tautulli user whose history should drive suggestions.
+- Supports configurable recommendation size, collection ordering, and whether to include already-watched titles.
+- Serves a dashboard on port **5555** with recent activity, connection status, and poster previews.
+
+> Plex items must include TMDB GUIDs (e.g., `tmdb://12345`) so metadata can be resolved correctly.
 
 ## Configuration
 
-Create a `.env` file with your Plex and metadata keys:
+You can configure the app entirely from the dashboard (settings are persisted to `/app/config/keys.yml` and `.data/config.json`) or by supplying environment variables in a `.env` file. Key settings include:
 
 ```
-PLEX_BASE_URL=http://<your-plex-host>:32400
+PLEX_BASE_URL=http://<plex-host>:32400
 PLEX_TOKEN=<plex-token>
-PLEX_LIBRARY_NAMES=Movies,TV Shows
-PLEX_USER_ID=<optional-plex-account-id>
+PLEX_LIBRARY_NAMES=Movies,TV Shows      # Or set PLEX_MOVIE_LIBRARY / PLEX_SHOW_LIBRARY
+PLEX_USER_ID=<optional-plex-account-id> # Filters history to a specific Plex user
 TMDB_API_KEY=<tmdb-api-key>
 LETTERBOXD_SESSION=<optional-letterboxd-session-cookie>
-LETTERBOXD_ALLOW_SCRAPE=true
+LETTERBOXD_ALLOW_SCRAPE=true            # Toggle Letterboxd scraping
+RELATED_POOL_LIMIT=100                  # How many related titles to consider per item
+ALLOW_WATCHED_RECOMMENDATIONS=false     # Allow already-watched titles in collections
+COLLECTION_ORDER=highest_score          # random|highest_score|alphabetical|oldest_first|newest_first
 DASHBOARD_TIMEOUT_SECONDS=10
 RECENT_ACTIVITY_TIMEOUT_SECONDS=10
 RECOMMENDATION_BUILD_TIMEOUT_SECONDS=120
+# Optional Tautulli integration (history source and user filtering)
+TAUTULLI_BASE_URL=https://tautulli.example.com
+TAUTULLI_API_KEY=<tautulli-api-key>
+TAUTULLI_USER_ID=<tautulli-user-id>
 ```
 
-> The recommendation engine expects Plex GUIDs to include TMDB IDs (e.g., `tmdb://12345`).
-> If your server has multiple users, set `PLEX_USER_ID` to the Plex Account ID you want to
-> monitor so history is filtered to that user. Leave it unset to include all users.
-> You can also configure Plex libraries and the optional user filter from the web dashboard
-> in the **Sign-In & API Settings** modal.
-
-### Timeouts
-
-The web dashboard uses shorter timeouts (defaults: 10s for rendering cached recommendations, 10s
-for refreshing recent activity) so the page can load quickly even if Plex or external services are
-slow. API-triggered recommendation rebuilds use a longer timeout (default: 120s) to accommodate
-typical collection refresh durations. Override these values with the environment variables shown
-above if your server routinely needs more or less time.
-
-## Run with Docker Compose
+### Running with Docker Compose
 
 ```
 docker compose up --build -d
 ```
 
-The app will be available at `http://localhost:5555`.
+The app will be available at `http://localhost:5555`. Mount `/app/config` (for saved tokens) and `/app/.data` (for cached configuration) if you want settings to persist between container restarts.
 
 ### Rebuilding after watches
 
-Configure a Plex webhook to `http://<host>:5555/webhook` so the collections refresh whenever something is watched. You can also manually refresh by loading the dashboard.
+- Configure a Plex webhook to `http://<host>:5555/webhook` to trigger an immediate refresh when something finishes playing.
+- Background workers also watch recent history and recent additions, so recommendations gradually update even without the webhook.
+- You can force a rebuild from the dashboard, and the cached results are shown on page load while long-running jobs continue in the background.
 
-Similarity scoring prioritizes Letterboxd data—higher rated films/shows receive a boost on top of cast/crew/genre/keyword overlap. Ratings are scraped from Letterboxd search results; providing a `LETTERBOXD_SESSION` cookie can improve reliability if Letterboxd requires sign-in.
-
-Letterboxd related-title scraping is on by default. Set `LETTERBOXD_ALLOW_SCRAPE=false` to force the engine to skip scraping and fall back to TMDB similar titles.
+Similarity scoring prioritizes Letterboxd ratings (when available) layered on top of TMDB cast/crew/genre/keyword overlap. Set `LETTERBOXD_ALLOW_SCRAPE=false` to skip scraping entirely.
 
 ## Development
 

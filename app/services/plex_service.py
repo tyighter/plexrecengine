@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import random
+from datetime import datetime, timedelta
 from typing import Iterable, List, Optional
 
 from plexapi.exceptions import NotFound
@@ -239,49 +240,10 @@ class PlexService:
     def recently_watched_shows(self, days: int = 30, max_results: Optional[int] = None):
         cutoff = datetime.now() - timedelta(days=days)
         limit = max_results or 200
-        tautulli_user_id = self._tautulli_user_id()
-        tautulli_history = self._load_tautulli_history("episode", days, limit, tautulli_user_id)
-        if tautulli_history is not None:
-            shows_with_dates = []
-            seen_show_keys = set()
-            for entry in tautulli_history:
-                rating_key = (
-                    entry.get("grandparent_rating_key")
-                    or entry.get("rating_key")
-                    or entry.get("parent_rating_key")
-                )
-                if rating_key is None or rating_key in seen_show_keys:
-                    continue
-                watched_at = self._tautulli_timestamp(
-                    entry.get("last_played")
-                    or entry.get("date")
-                    or entry.get("stopped")
-                )
-                if watched_at < cutoff:
-                    continue
-                item = self.fetch_item(
-                    rating_key,
-                    extra={
-                        "source": "recently_watched_shows",
-                        "context": "tautulli_history",
-                        "tautulli_user_id": tautulli_user_id,
-                    },
-                )
-                if item is None:
-                    continue
-                if getattr(item, "type", None) == "episode":
-                    try:
-                        item = item.show()
-                    except Exception:
-                        continue
-                if getattr(item, "type", None) != "show":
-                    continue
-                seen_show_keys.add(rating_key)
-                shows_with_dates.append((item, watched_at))
-                if max_results and len(shows_with_dates) >= max_results:
-                    break
-            shows_with_dates.sort(key=lambda pair: pair[1], reverse=True)
-            return [item for item, _ in shows_with_dates][: max_results or len(shows_with_dates)]
+        tautulli_shows = self._recent_shows_from_tautulli(days, limit)
+        if tautulli_shows is not None:
+            trimmed = tautulli_shows[: max_results or len(tautulli_shows)]
+            return [item for item, _ in trimmed]
 
         episodes = []
         seen_episode_keys = set()
@@ -344,6 +306,79 @@ class PlexService:
             "Selected unique recently watched shows", extra={"count": len(shows)}
         )
         return shows
+
+    def _recent_shows_from_tautulli(self, days: int, limit: int):
+        cutoff = datetime.now() - timedelta(days=days)
+        tautulli_user_id = self._tautulli_user_id()
+        tautulli_history = self._load_tautulli_history("episode", days, limit, tautulli_user_id)
+        if tautulli_history is None:
+            return None
+
+        shows_with_dates = []
+        seen_show_keys = set()
+        for entry in tautulli_history:
+            rating_key = (
+                entry.get("grandparent_rating_key")
+                or entry.get("rating_key")
+                or entry.get("parent_rating_key")
+            )
+            if rating_key is None or rating_key in seen_show_keys:
+                continue
+            watched_at = self._tautulli_timestamp(
+                entry.get("last_played") or entry.get("date") or entry.get("stopped")
+            )
+            if watched_at < cutoff:
+                continue
+            item = self.fetch_item(
+                rating_key,
+                extra={
+                    "source": "recently_watched_shows",
+                    "context": "tautulli_history",
+                    "tautulli_user_id": tautulli_user_id,
+                },
+            )
+            if item is None:
+                continue
+            if getattr(item, "type", None) == "episode":
+                try:
+                    item = item.show()
+                except Exception:
+                    continue
+            if getattr(item, "type", None) != "show":
+                continue
+            seen_show_keys.add(rating_key)
+            shows_with_dates.append((item, watched_at))
+            if limit and len(shows_with_dates) >= limit:
+                break
+
+        shows_with_dates.sort(key=lambda pair: pair[1], reverse=True)
+        return shows_with_dates
+
+    def tautulli_recent_show_entries(self, days: int = 7, max_results: Optional[int] = None):
+        limit = max_results or 200
+        return self._recent_shows_from_tautulli(days, limit)
+
+    def recently_added_shows(self, days: int = 7, max_results: int = 200):
+        cutoff = datetime.now() - timedelta(days=days)
+        shows_with_dates = []
+        seen_rating_keys = set()
+        for item in self.recently_added("show", max_results=max_results):
+            added_at = getattr(item, "addedAt", None) or datetime.min
+            if added_at < cutoff:
+                continue
+            show_item = item
+            if getattr(item, "type", None) != "show":
+                try:
+                    show_item = item.show()
+                except Exception:
+                    continue
+            rating_key = getattr(show_item, "ratingKey", None)
+            if rating_key is None or rating_key in seen_rating_keys:
+                continue
+            seen_rating_keys.add(rating_key)
+            shows_with_dates.append((show_item, added_at))
+        shows_with_dates.sort(key=lambda pair: pair[1], reverse=True)
+        return shows_with_dates
 
     def iter_library_items(self, section_type: str):
         for section in self._library_sections():

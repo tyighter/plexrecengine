@@ -219,7 +219,6 @@ async def _generate_recommendations(force: bool = False) -> dict[str, object]:
     def build_recommendations():
         plex = get_plex_service()
         index = get_plex_index()
-        index.rebuild()
         engine = RecommendationEngine(plex, index)
         return engine.build_movie_collection(), engine.build_show_collection()
 
@@ -336,9 +335,18 @@ async def startup_build_collections():
     if not settings.is_plex_configured:
         return
 
+    index = get_plex_index()
+    status = index.status()
+    total_items = status.get("total_items") or 0
+    processed_items = status.get("processed_items") or 0
+    index_complete = status.get("state") == "ready" and (
+        not total_items or processed_items >= total_items
+    )
+    if not index_complete:
+        _schedule_index_rebuild()
+
     def build_collections():
         plex = get_plex_service()
-        index = get_plex_index()
         engine = RecommendationEngine(plex, index)
         engine.build_movie_collection()
         engine.build_show_collection()
@@ -346,7 +354,6 @@ async def startup_build_collections():
     # Run the expensive collection refresh in the background so startup
     # doesn't block the first page load after configuration.
     asyncio.create_task(asyncio.to_thread(build_collections))
-    _schedule_index_rebuild()
     asyncio.create_task(refresh_recent_cache())
     asyncio.create_task(_watch_recent_activity())
     asyncio.create_task(_watch_library_additions())
@@ -604,7 +611,7 @@ async def webhook_trigger():
         invalidate_recent_cache()
         plex = get_plex_service()
         index = get_plex_index()
-        index.rebuild()
+        index.refresh_recent_additions()
         engine = RecommendationEngine(plex, index)
         engine.build_movie_collection()
         engine.build_show_collection()

@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     letterboxd_session: str | None = None
     letterboxd_allow_scrape: bool = True
     related_pool_limit: int = 100
-    allow_watched_recommendations: bool = True
+    allow_watched_recommendations: bool = False
     collection_order: str = "highest_score"
     dashboard_timeout_seconds: float = 10.0
     recent_activity_timeout_seconds: float = 10.0

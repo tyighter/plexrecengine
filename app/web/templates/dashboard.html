@@ -641,16 +641,35 @@
         isTautulliConfigured ? 'connected' : 'disconnected',
         `Tautulli ${isTautulliConfigured ? 'Connected' : 'Not connected'}`,
     );
+    function formatEta(seconds) {
+        const rounded = Math.max(0, Math.round(seconds ?? 0));
+        if (rounded < 60) return `${rounded}s`;
+        const minutes = Math.floor(rounded / 60);
+        const secs = rounded % 60;
+        if (minutes < 60) return `${minutes}m ${secs}s`;
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        return `${hours}h ${mins}m`;
+    }
+
     function setIndexStatus(status) {
         if (!indexStatusPill || !indexStatusText) return;
         const state = status?.state || 'idle';
         const itemsIndexed = status?.items_indexed;
         const lastBuiltAt = status?.last_built_at ? new Date(status.last_built_at) : null;
+        const etaSeconds = Number.isFinite(status?.eta_seconds) ? status.eta_seconds : null;
+        const progressPercent = Number.isFinite(status?.progress)
+            ? Math.round((status?.progress ?? 0) * 100)
+            : null;
         let pillState = 'disconnected';
         let label = 'Plex index idle';
+        let detail = '';
         if (state === 'building') {
             pillState = 'pending';
-            label = 'Plex index building...';
+            const etaText = etaSeconds != null ? ` · ETA ${formatEta(etaSeconds)}` : '';
+            const progressText = progressPercent != null ? `${progressPercent}%` : '';
+            detail = [progressText, etaText].filter(Boolean).join(' ');
+            label = `Plex index building...${detail ? ` ${detail}` : ''}`;
         } else if (state === 'ready' || itemsIndexed) {
             pillState = 'connected';
             const timeText = lastBuiltAt ? ` · Updated ${lastBuiltAt.toLocaleString()}` : '';
@@ -672,7 +691,15 @@
             const status = await response.json();
             setIndexStatus(status);
             if (status?.state === 'building') {
-                indexStatus.textContent = 'Plex index is currently rebuilding...';
+                const progressText = Number.isFinite(status?.progress)
+                    ? `${Math.round((status.progress ?? 0) * 100)}%`
+                    : null;
+                const etaText = Number.isFinite(status?.eta_seconds)
+                    ? ` · ETA ${formatEta(status.eta_seconds)}`
+                    : '';
+                indexStatus.textContent = progressText
+                    ? `Plex index rebuilding (${progressText}${etaText}).`
+                    : 'Plex index is currently rebuilding...';
             } else if (status?.state === 'ready') {
                 const updatedAt = status?.last_built_at ? new Date(status.last_built_at).toLocaleString() : null;
                 indexStatus.textContent = updatedAt

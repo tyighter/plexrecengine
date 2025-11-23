@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import pickle
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import numpy as np
@@ -13,6 +17,10 @@ from app.services.plex_service import PlexService, get_plex_service
 
 LOGGER = get_generate_logger()
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+INDEX_DIR = Path("/app/index")
+INDEX_PATH = INDEX_DIR / "plex_index.pkl"
+CHECKPOINT_PATH = INDEX_DIR / "plex_index.checkpoint.pkl"
+PROGRESS_PATH = INDEX_DIR / "plex_index.progress.json"
 
 
 def _extract_names(entries: Iterable) -> Set[str]:
@@ -58,6 +66,12 @@ class PlexIndex:
         self._last_built_at: datetime | None = None
         self._last_started_at: datetime | None = None
         self._last_error: str | None = None
+        self._build_started_at: float | None = None
+        self._total_items: int | None = None
+        self._processed_items: int = 0
+
+        INDEX_DIR.mkdir(parents=True, exist_ok=True)
+        self._load_from_cache()
 
     def _get_embedding_model(self):
         with self._lock:
@@ -136,6 +150,74 @@ class PlexIndex:
         if current is None or profile.added_at > current:
             self._latest_added[profile.media_type] = profile.added_at
 
+    def _serialize_checkpoint(self, profiles: Dict[int, PlexProfile], latest: dict[str, datetime]):
+        data = {
+            "profiles": profiles,
+            "latest_added": latest,
+            "processed_items": len(profiles),
+            "created_at": time.time(),
+        }
+        try:
+            with CHECKPOINT_PATH.open("wb") as fp:
+                pickle.dump(data, fp)
+            PROGRESS_PATH.write_text(
+                json.dumps(
+                    {
+                        "state": "building",
+                        "processed_items": len(profiles),
+                        "total_items": self._total_items,
+                        "started_at": self._build_started_at,
+                        "last_updated_at": time.time(),
+                    }
+                )
+            )
+        except Exception:
+            LOGGER.exception("Failed to persist Plex index checkpoint")
+
+    def _load_checkpoint(self) -> tuple[Dict[int, PlexProfile], dict[str, datetime]]:
+        if not CHECKPOINT_PATH.exists():
+            return {}, {}
+        try:
+            with CHECKPOINT_PATH.open("rb") as fp:
+                data = pickle.load(fp)
+            profiles = data.get("profiles", {})
+            latest = data.get("latest_added", {})
+            return profiles, latest
+        except Exception:
+            LOGGER.exception("Failed to load Plex index checkpoint")
+            return {}, {}
+
+    def _save_cache(self) -> None:
+        data = {
+            "profiles": self._profiles,
+            "latest_added": self._latest_added,
+            "summary_matrix": self._summary_matrix,
+            "matrix_keys": self._matrix_keys,
+            "last_built_at": self._last_built_at,
+        }
+        try:
+            with INDEX_PATH.open("wb") as fp:
+                pickle.dump(data, fp)
+        except Exception:
+            LOGGER.exception("Failed to persist Plex index cache")
+
+    def _load_from_cache(self) -> None:
+        if not INDEX_PATH.exists():
+            return
+        try:
+            with INDEX_PATH.open("rb") as fp:
+                data = pickle.load(fp)
+            self._profiles = data.get("profiles", {})
+            self._latest_added = data.get("latest_added", {})
+            self._summary_matrix = data.get("summary_matrix")
+            self._matrix_keys = data.get("matrix_keys", [])
+            self._has_built = bool(self._profiles)
+            self._last_built_at = data.get("last_built_at")
+            self._processed_items = len(self._profiles)
+            self._total_items = len(self._profiles) or None
+        except Exception:
+            LOGGER.exception("Failed to load Plex index cache")
+
     def rebuild(self) -> None:
         with self._lock:
             if self._build_in_progress:
@@ -144,21 +226,39 @@ class PlexIndex:
             self._build_in_progress = True
             self._last_error = None
             self._last_started_at = datetime.utcnow()
+            self._build_started_at = time.time()
+            self._processed_items = 0
+            self._total_items = None
 
         try:
-            profiles: Dict[int, PlexProfile] = {}
-            latest: dict[str, datetime] = {}
-            for item in self.plex.iter_library_items("movie"):
-                profile = self._build_profile(item)
-                profiles[profile.rating_key] = profile
-                if profile.added_at:
-                    latest["movie"] = max(latest.get("movie", profile.added_at), profile.added_at)
+            checkpoint_profiles, checkpoint_latest = self._load_checkpoint()
+            profiles: Dict[int, PlexProfile] = dict(checkpoint_profiles)
+            latest: dict[str, datetime] = dict(checkpoint_latest)
+            processed_keys = set(profiles.keys())
+            self._processed_items = len(profiles)
 
-            for item in self.plex.iter_library_items("show"):
+            movie_items = list(self.plex.iter_library_items("movie"))
+            show_items = list(self.plex.iter_library_items("show"))
+            total_items = len(movie_items) + len(show_items)
+            self._total_items = total_items or self._total_items
+
+            def _process_item(item):
                 profile = self._build_profile(item)
                 profiles[profile.rating_key] = profile
                 if profile.added_at:
-                    latest["show"] = max(latest.get("show", profile.added_at), profile.added_at)
+                    latest[profile.media_type] = max(
+                        latest.get(profile.media_type, profile.added_at), profile.added_at
+                    )
+
+            for item in movie_items + show_items:
+                rating_key = getattr(item, "ratingKey", None)
+                if rating_key is not None and rating_key in processed_keys:
+                    continue
+                _process_item(item)
+                self._processed_items += 1
+                if self._processed_items % 50 == 0:
+                    self._serialize_checkpoint(profiles, latest)
+            self._serialize_checkpoint(profiles, latest)
 
             with self._lock:
                 self._profiles = profiles
@@ -167,6 +267,12 @@ class PlexIndex:
                 self._build_in_progress = False
                 self._has_built = True
                 self._last_built_at = datetime.utcnow()
+                self._processed_items = len(profiles)
+            self._save_cache()
+            if CHECKPOINT_PATH.exists():
+                CHECKPOINT_PATH.unlink(missing_ok=True)
+            if PROGRESS_PATH.exists():
+                PROGRESS_PATH.unlink(missing_ok=True)
         except Exception as exc:  # noqa: BLE001
             with self._lock:
                 self._build_in_progress = False
@@ -273,12 +379,25 @@ class PlexIndex:
             else:
                 state = "idle"
 
+            progress = None
+            eta_seconds = None
+            if self._total_items and self._total_items > 0:
+                progress = min(self._processed_items / self._total_items, 1.0)
+                if self._build_started_at and self._processed_items:
+                    elapsed = time.time() - self._build_started_at
+                    rate = elapsed / max(self._processed_items, 1)
+                    eta_seconds = max(int((self._total_items - self._processed_items) * rate), 0)
+
             return {
                 "state": state,
                 "items_indexed": len(self._profiles),
                 "last_started_at": self._last_started_at.isoformat() if self._last_started_at else None,
                 "last_built_at": self._last_built_at.isoformat() if self._last_built_at else None,
                 "last_error": self._last_error,
+                "total_items": self._total_items,
+                "processed_items": self._processed_items,
+                "progress": progress,
+                "eta_seconds": eta_seconds,
             }
 
 

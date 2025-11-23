@@ -18,6 +18,7 @@ PLEX_LIBRARY_NAMES=Movies,TV Shows
 PLEX_USER_ID=<optional-plex-account-id>
 TMDB_API_KEY=<tmdb-api-key>
 LETTERBOXD_SESSION=<optional-letterboxd-session-cookie>
+LETTERBOXD_ALLOW_SCRAPE=true
 DASHBOARD_TIMEOUT_SECONDS=10
 RECENT_ACTIVITY_TIMEOUT_SECONDS=10
 RECOMMENDATION_BUILD_TIMEOUT_SECONDS=120
@@ -50,6 +51,8 @@ The app will be available at `http://localhost:5555`.
 Configure a Plex webhook to `http://<host>:5555/webhook` so the collections refresh whenever something is watched. You can also manually refresh by loading the dashboard.
 
 Similarity scoring prioritizes Letterboxd data—higher rated films/shows receive a boost on top of cast/crew/genre/keyword overlap. Ratings are scraped from Letterboxd search results; providing a `LETTERBOXD_SESSION` cookie can improve reliability if Letterboxd requires sign-in.
+
+Letterboxd related-title scraping is on by default. Set `LETTERBOXD_ALLOW_SCRAPE=false` to force the engine to skip scraping and fall back to TMDB similar titles.
 
 ## Development
 

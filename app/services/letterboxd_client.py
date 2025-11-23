@@ -98,7 +98,8 @@ class LetterboxdClient:
         return best_rating, best_votes
 
     def _fetch_film_detail(self, slug: str) -> Tuple[Optional[float], Optional[int]]:
-        film_url = f"https://letterboxd.com{slug}/"
+        normalized_slug = slug if slug.startswith("/") else f"/{slug}"
+        film_url = f"https://letterboxd.com{normalized_slug.rstrip('/')}/"
         response = self.letterboxd.get(film_url)
         if response.status_code == 403 or self._is_login_response(response):
             logger.warning("Letterboxd film page blocked (status=%s, url=%s)", response.status_code, response.url)
@@ -107,6 +108,73 @@ class LetterboxdClient:
             return None, None
         soup = BeautifulSoup(response.text, "html.parser")
         return self._extract_rating_from_film_page(soup)
+
+    def _find_letterboxd_slug(self, title: str, year: Optional[int] = None) -> Optional[str]:
+        response = self.letterboxd.get("https://letterboxd.com/search/films/", params={"q": title})
+        if response.status_code == 403 or self._is_login_response(response):
+            logger.warning("Letterboxd search blocked (status=%s, url=%s)", response.status_code, response.url)
+            return None
+        if response.status_code != 200:
+            return None
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        candidate_slug: Optional[str] = None
+        for li in soup.select("li[data-film-slug]"):
+            try:
+                film_year = int(li.get("data-film-year") or 0)
+            except ValueError:
+                film_year = 0
+            if year and film_year and abs(film_year - year) > 1:
+                continue
+            candidate_slug = li.get("data-film-slug")
+            if candidate_slug:
+                break
+        return candidate_slug
+
+    def _fetch_letterboxd_related(self, slug: str, limit: Optional[int]) -> list[int]:
+        normalized_slug = slug if slug.startswith("/") else f"/{slug}"
+        film_url = f"https://letterboxd.com{normalized_slug.rstrip('/')}/"
+        response = self.letterboxd.get(film_url)
+        if response.status_code == 403 or self._is_login_response(response):
+            logger.warning("Letterboxd related blocked (status=%s, url=%s)", response.status_code, response.url)
+            return []
+        if response.status_code != 200:
+            return []
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        sections = soup.select(
+            "section.related-films, section.films-like-this, section.also-liked, section.recommendations"
+        )
+        if not sections:
+            sections = soup.select("section[class*='related'], section[class*='liked']")
+        if not sections:
+            sections = [soup]
+
+        related_slugs: list[tuple[str, Optional[int]]] = []
+        seen_slugs: set[str] = set()
+        for section in sections:
+            for li in section.select("li[data-film-slug]"):
+                related_slug = li.get("data-film-slug")
+                if not related_slug or related_slug in seen_slugs:
+                    continue
+                seen_slugs.add(related_slug)
+                year = self._parse_int(li.get("data-film-year"))
+                related_slugs.append((related_slug, year))
+                if limit is not None and len(related_slugs) >= limit:
+                    break
+            if limit is not None and len(related_slugs) >= limit:
+                break
+
+        related_tmdb_ids: list[int] = []
+        for related_slug, year in related_slugs:
+            title = self._slug_to_title(related_slug)
+            tmdb_id = self.search_tmdb_id(title, "movie", year)
+            if tmdb_id is not None and tmdb_id not in related_tmdb_ids:
+                related_tmdb_ids.append(tmdb_id)
+            if limit is not None and len(related_tmdb_ids) >= limit:
+                break
+
+        return related_tmdb_ids
 
     def _extract_rating_from_film_page(self, soup: BeautifulSoup) -> Tuple[Optional[float], Optional[int]]:
         rating = None
@@ -281,9 +349,25 @@ class LetterboxdClient:
                 page += 1
             return results
 
-        source = f"/{profile.media_type}/{profile.tmdb_id}/similar"
-        remaining = max_results
-        candidate_ids = _fetch_candidates(source, remaining)
+        candidate_ids: list[int] = []
+        if (
+            settings.letterboxd_allow_scrape
+            and profile.media_type == "movie"
+            and not settings.letterboxd_session
+        ):
+            logger.info("Letterboxd scrape enabled but no session provided; proceeding unauthenticated")
+
+        if settings.letterboxd_allow_scrape and profile.media_type == "movie":
+            slug = self._find_letterboxd_slug(profile.title)
+            if slug:
+                candidate_ids = self._fetch_letterboxd_related(slug, max_results)
+            if not candidate_ids:
+                logger.info("Falling back to TMDB similar titles for %s", profile.title)
+
+        if not candidate_ids:
+            source = f"/{profile.media_type}/{profile.tmdb_id}/similar"
+            remaining = max_results
+            candidate_ids = _fetch_candidates(source, remaining)
         for tmdb_id in candidate_ids:
             try:
                 recommendations.append(self.fetch_profile(tmdb_id, profile.media_type))
@@ -292,6 +376,11 @@ class LetterboxdClient:
             if max_results and len(recommendations) >= max_results:
                 break
         return recommendations
+
+    @staticmethod
+    def _slug_to_title(slug: str) -> str:
+        cleaned = slug.strip("/").split("/")[-1]
+        return cleaned.replace("-", " ") if cleaned else slug
 
 
 def _tmdb_score(rating: Optional[float]) -> float:

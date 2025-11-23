@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     tautulli_user_id: str | None = None
     tmdb_api_key: str | None = None
     letterboxd_session: str | None = None
+    letterboxd_allow_scrape: bool = True
     related_pool_limit: int = 100
     allow_watched_recommendations: bool = True
     collection_order: str = "highest_score"

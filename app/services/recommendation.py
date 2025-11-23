@@ -110,16 +110,11 @@ class RecommendationEngine:
                 related.append(profile)
 
         if not related:
-            related = list(
-                self.letterboxd.search_related(
-                    source_profile, limit=None if related_pool_limit == 0 else related_pool_limit
-                )
-            )
             SCORING_LOGGER.info(
-                "Found %s related movies from TMDB for %s",
-                len(related),
+                "No related titles found in Plex for %s; skipping recommendations",
                 source_label or "Unknown title",
             )
+            return []
         else:
             SCORING_LOGGER.info(
                 "Using %s Plex-related titles (TMDB fallback skipped)",

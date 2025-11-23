@@ -24,6 +24,7 @@ from app.services.plex_auth import (
 from app.services.plex_index import get_plex_index
 from app.services.plex_service import get_plex_service
 from app.services.recommendation import RecommendationEngine
+from app.services.tautulli_logging import log_recent_tv_activity
 from app.services.tautulli_service import list_tautulli_users
 
 APP_DIR = Path(__file__).resolve().parent
@@ -144,6 +145,15 @@ def _is_recent_cache_fresh() -> bool:
 async def _fetch_recent_activity() -> dict[str, list[dict[str, object]]]:
     def fetch_recent():
         plex = get_plex_service()
+        try:
+            log_recent_tv_activity(
+                plex,
+                user_id=settings.tautulli_user_id or settings.plex_user_id,
+                days=7,
+            )
+        except Exception:
+            LOGGER.exception("Failed to log recent Tautulli activity")
+
         return {
             "recent_movies": [
                 _serialize_recent(item, plex.poster_url)

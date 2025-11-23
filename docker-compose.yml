@@ -16,4 +16,5 @@ services:
       - ./data:/app/data
       - /mnt/disks/ssd/plexrec/app/logs:/app/logs
       - /mnt/disks/ssd/plexrec/app/config:/app/config
+      - /mnt/disks/ssd/plexrec/app/index:/app/index
     restart: unless-stopped

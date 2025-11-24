@@ -331,8 +331,36 @@ class RecommendationEngine:
 
         return sorted(ordered, key=lambda rec: rec.score, reverse=True)
 
+    def _order_collection_items(
+        self, items: List[tuple[Recommendation, object]]
+    ) -> List[object]:
+        order = (settings.collection_order or "highest_score").lower()
+        ordered = list(items)
+
+        def _year(rec: Recommendation, item: object):
+            if rec.year:
+                return rec.year
+            return getattr(item, "year", None) or getattr(
+                getattr(item, "originallyAvailableAt", None), "year", 9999
+            )
+
+        if order == "random":
+            random.shuffle(ordered)
+        elif order == "alphabetical":
+            ordered.sort(key=lambda pair: (pair[0].title or getattr(pair[1], "title", "")))
+        elif order == "oldest_first":
+            ordered.sort(key=lambda pair: (_year(pair[0], pair[1]) or 9999, pair[0].title or ""))
+        elif order == "newest_first":
+            ordered.sort(key=lambda pair: (-(
+                _year(pair[0], pair[1]) or 0
+            ), pair[0].title or ""))
+        else:
+            ordered.sort(key=lambda pair: pair[0].score, reverse=True)
+
+        return [item for _, item in ordered]
+
     def _refresh_collection(self, collection_name: str, recs: List[Recommendation]):
-        items = []
+        items: List[tuple[Recommendation, object]] = []
         for rec in recs:
             item = self.plex.fetch_item(
                 rec.rating_key,
@@ -344,9 +372,10 @@ class RecommendationEngine:
                 },
             )
             if item:
-                items.append(item)
+                items.append((rec, item))
         try:
-            self.plex.set_collection_members(collection_name, items)
+            ordered_items = self._order_collection_items(items)
+            self.plex.set_collection_members(collection_name, ordered_items)
         except Exception:
             LOGGER.exception("Failed to refresh Plex collection", extra={"collection": collection_name})
 

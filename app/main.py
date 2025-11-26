@@ -97,6 +97,7 @@ ALLOWED_COLLECTION_ORDERS = {
     "alphabetical",
     "oldest_first",
     "newest_first",
+    "recommendation_order",
 }
 
 

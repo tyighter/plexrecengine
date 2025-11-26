@@ -322,6 +322,8 @@ class RecommendationEngine:
         if order == "random":
             random.shuffle(ordered)
             return ordered
+        if order == "recommendation_order":
+            return ordered
         if order == "alphabetical":
             return sorted(ordered, key=lambda rec: rec.title or "")
         if order == "oldest_first":
@@ -346,6 +348,8 @@ class RecommendationEngine:
 
         if order == "random":
             random.shuffle(ordered)
+        elif order == "recommendation_order":
+            return [item for _, item in ordered]
         elif order == "alphabetical":
             ordered.sort(key=lambda pair: (pair[0].title or getattr(pair[1], "title", "")))
         elif order == "oldest_first":

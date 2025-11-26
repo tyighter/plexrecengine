@@ -531,6 +531,7 @@
                     <option value="random">Random</option>
                     <option value="highest_score">Highest score first</option>
                     <option value="alphabetical">Alphabetical</option>
+                    <option value="recommendation_order">Recommendation order</option>
                     <option value="oldest_first">Oldest first</option>
                     <option value="newest_first">Newest first</option>
                 </select>
@@ -1167,7 +1168,14 @@
             return;
         }
         const selectedOrder = collectionOrderSelect?.value || 'highest_score';
-        const allowedOrders = new Set(['random', 'highest_score', 'alphabetical', 'oldest_first', 'newest_first']);
+        const allowedOrders = new Set([
+            'random',
+            'highest_score',
+            'alphabetical',
+            'recommendation_order',
+            'oldest_first',
+            'newest_first',
+        ]);
         if (!allowedOrders.has(selectedOrder)) {
             recommendationSettingsStatus.textContent = 'Choose a supported collection order option.';
             return;

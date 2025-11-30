@@ -498,6 +498,45 @@ class PlexService:
             raise RuntimeError("Unable to determine library section for collection members")
 
         collection = self.ensure_collection(collection_name, section, items=items)
+
+        sort_set = False
+        sort_update = getattr(collection, "sortUpdate", None)
+        if callable(sort_update):
+            try:
+                sort_update(sort="custom")
+                sort_set = True
+                LOGGER.debug(
+                    "Configured Plex collection sort order to custom",
+                    extra={"collection": collection_name},
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Failed to configure Plex collection sort order via sortUpdate",
+                    extra={"collection": collection_name},
+                )
+
+        if not sort_set:
+            edit_fn = getattr(collection, "edit", None)
+            if callable(edit_fn):
+                try:
+                    edit_fn(sort="custom")
+                    collection.reload()
+                    sort_set = True
+                    LOGGER.debug(
+                        "Configured Plex collection sort order to custom via edit",
+                        extra={"collection": collection_name},
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        "Failed to configure Plex collection sort order via edit",
+                        extra={"collection": collection_name},
+                    )
+
+        if not sort_set:
+            LOGGER.warning(
+                "Unable to set Plex collection sort order to custom; proceeding with existing sort",  # noqa: E501
+                extra={"collection": collection_name},
+            )
         try:
             existing_items = list(collection.items())
         except Exception:

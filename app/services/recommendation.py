@@ -404,6 +404,14 @@ class RecommendationEngine:
             # preference via ``_order_recommendations``. Preserve that sequence so the
             # Plex collection mirrors the order shown in the UI.
             ordered_items = [item for _, item in items]
+            ordered_titles = [rec.title or f"rating_key:{rec.rating_key}" for rec, _ in items]
+            COLLECTION_LOGGER.info(
+                "Ordered Plex collection items",
+                extra={
+                    "collection": collection_name,
+                    "titles": ordered_titles,
+                },
+            )
             COLLECTION_LOGGER.info(
                 "Applying ordered items to Plex collection",
                 extra={

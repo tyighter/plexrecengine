@@ -876,32 +876,69 @@ class PlexService:
         """Reorder collection items sequentially using ``moveItem`` calls."""
 
         collection_name = collection_name or getattr(collection, "title", "unknown")
+        try:
+            collection_items = {
+                getattr(item, "ratingKey", None): item for item in collection.items() if hasattr(item, "ratingKey")
+            }
+        except Exception:
+            LOGGER.exception(
+                "Failed to load Plex collection items for move-based reordering",
+                extra={"collection": collection_name},
+            )
+            COLLECTION_LOGGER.exception(
+                "Failed to load Plex collection items for move-based reordering",
+                extra={"collection": collection_name},
+            )
+            return False
+
         after = None
         reordered = True
 
         for item in items:
+            rating_key = getattr(item, "ratingKey", None)
+            collection_item = collection_items.get(rating_key)
+            if collection_item is None:
+                reordered = False
+                LOGGER.warning(
+                    "Skipping Plex collection item missing from collection when reordering",
+                    extra={
+                        "collection": collection_name,
+                        "item_title": getattr(item, "title", None),
+                        "rating_key": rating_key,
+                    },
+                )
+                COLLECTION_LOGGER.warning(
+                    "Skipping Plex collection item missing from collection when reordering",
+                    extra={
+                        "collection": collection_name,
+                        "item_title": getattr(item, "title", None),
+                        "rating_key": rating_key,
+                    },
+                )
+                continue
+
             try:
                 if after is None:
-                    collection.moveItem(item)
+                    collection.moveItem(collection_item)
                 else:
-                    collection.moveItem(item, after=after)
-                after = item
+                    collection.moveItem(collection_item, after=after)
+                after = collection_item
             except Exception:
                 reordered = False
                 LOGGER.exception(
                     "Failed to move Plex collection item",
                     extra={
                         "collection": collection_name,
-                        "item_title": getattr(item, "title", None),
-                        "rating_key": getattr(item, "ratingKey", None),
+                        "item_title": getattr(collection_item, "title", None),
+                        "rating_key": getattr(collection_item, "ratingKey", None),
                     },
                 )
                 COLLECTION_LOGGER.exception(
                     "Failed to move Plex collection item",
                     extra={
                         "collection": collection_name,
-                        "item_title": getattr(item, "title", None),
-                        "rating_key": getattr(item, "ratingKey", None),
+                        "item_title": getattr(collection_item, "title", None),
+                        "rating_key": getattr(collection_item, "ratingKey", None),
                     },
                 )
 

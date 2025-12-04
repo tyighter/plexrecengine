@@ -120,6 +120,8 @@ class RecommendationConfig(BaseModel):
     relatedPoolLimit: int | None = None
     allowWatched: bool | None = None
     collectionOrder: str | None = None
+    recentsWindowDays: int | None = None
+    recommendationsPerRecent: int | None = None
 
 
 def _serialize_recent(item, poster_url):
@@ -150,7 +152,7 @@ async def _fetch_recent_activity() -> dict[str, list[dict[str, object]]]:
             log_recent_tv_activity(
                 plex,
                 user_id=settings.tautulli_user_id or settings.plex_user_id,
-                days=7,
+                days=settings.recents_window_days,
             )
         except Exception:
             LOGGER.exception("Failed to log recent Tautulli activity")
@@ -158,11 +160,15 @@ async def _fetch_recent_activity() -> dict[str, list[dict[str, object]]]:
         return {
             "recent_movies": [
                 _serialize_recent(item, plex.poster_url)
-                for item in plex.recently_watched_movies(days=30, max_results=200)
+                for item in plex.recently_watched_movies(
+                    days=settings.recents_window_days, max_results=200
+                )
             ],
             "recent_shows": [
                 _serialize_recent(item, plex.poster_url)
-                for item in plex.recently_watched_shows(days=30, max_results=200)
+                for item in plex.recently_watched_shows(
+                    days=settings.recents_window_days, max_results=200
+                )
             ],
         }
 
@@ -573,6 +579,8 @@ async def set_recommendation_config(payload: RecommendationConfig):
         payload.relatedPoolLimit is None
         and payload.allowWatched is None
         and payload.collectionOrder is None
+        and payload.recentsWindowDays is None
+        and payload.recommendationsPerRecent is None
     ):
         raise HTTPException(
             status_code=400,
@@ -608,11 +616,36 @@ async def set_recommendation_config(payload: RecommendationConfig):
         save_config({"COLLECTION_ORDER": order})
         settings.collection_order = order
 
+    if payload.recentsWindowDays is not None:
+        if payload.recentsWindowDays < 1:
+            raise HTTPException(status_code=400, detail="Recents window must be at least 1 day")
+        ENV_PATH.touch(exist_ok=True)
+        set_key(str(ENV_PATH), "RECENTS_WINDOW_DAYS", str(payload.recentsWindowDays))
+        save_config({"RECENTS_WINDOW_DAYS": payload.recentsWindowDays})
+        settings.recents_window_days = payload.recentsWindowDays
+
+    if payload.recommendationsPerRecent is not None:
+        if payload.recommendationsPerRecent < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Recommendations per recent must be at least 1",
+            )
+        ENV_PATH.touch(exist_ok=True)
+        set_key(
+            str(ENV_PATH),
+            "RECOMMENDATIONS_PER_RECENT",
+            str(payload.recommendationsPerRecent),
+        )
+        save_config({"RECOMMENDATIONS_PER_RECENT": payload.recommendationsPerRecent})
+        settings.recommendations_per_recent = payload.recommendationsPerRecent
+
     return {
         "status": "ok",
         "related_pool_limit": settings.related_pool_limit,
         "allow_watched_recommendations": settings.allow_watched_recommendations,
         "collection_order": settings.collection_order,
+        "recents_window_days": settings.recents_window_days,
+        "recommendations_per_recent": settings.recommendations_per_recent,
     }
 
 

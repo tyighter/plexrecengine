@@ -285,7 +285,11 @@ class RecommendationEngine:
         return selected
 
     def _build_collection(
-        self, recent_items: List, media_type: str, collection_name: str, limit: int
+        self,
+        recent_items: List,
+        media_type: str,
+        collection_name: str,
+        limit: int | None,
     ) -> List[Recommendation]:
         COLLECTION_LOGGER.info(
             "Starting collection build",
@@ -296,7 +300,7 @@ class RecommendationEngine:
                 "limit": limit,
             },
         )
-        picks_per_source = 3
+        picks_per_source = settings.recommendations_per_recent or 3
         candidates_by_source: dict[int, List[Recommendation]] = {}
         source_order: List[int] = []
         for item in recent_items:
@@ -334,10 +338,11 @@ class RecommendationEngine:
                 selected_by_source.get(source, []), key=lambda rec: rec.score, reverse=True
             )
             final.extend(source_recs)
-            if len(final) >= limit * picks_per_source:
+            if limit is not None and len(final) >= limit * picks_per_source:
                 break
 
-        final = final[: limit * picks_per_source]
+        if limit is not None:
+            final = final[: limit * picks_per_source]
         final = self._order_recommendations(final)
         LOGGER.debug(
             "Compiled %s recommendations", collection_name,
@@ -426,16 +431,30 @@ class RecommendationEngine:
                 "Failed to refresh Plex collection", extra={"collection": collection_name}
             )
 
-    def build_movie_collection(self, limit: int = 10, days: int = 30) -> List[Recommendation]:
-        recent_movies = list(self.plex.recently_watched_movies(days=days, max_results=200))
+    def build_movie_collection(
+        self, limit: int | None = None, days: int | None = None
+    ) -> List[Recommendation]:
+        days = days or settings.recents_window_days
+        recent_movies = list(
+            self.plex.recently_watched_movies(days=days, max_results=200)
+        )
         LOGGER.debug("Found recently watched movies", extra={"count": len(recent_movies)})
         return self._build_collection(
-            recent_movies, media_type="movie", collection_name="Recommended Movies", limit=limit
+            recent_movies,
+            media_type="movie",
+            collection_name="Recommended Movies",
+            limit=limit,
         )
 
-    def build_show_collection(self, limit: int = 10, days: int = 30) -> List[Recommendation]:
+    def build_show_collection(
+        self, limit: int | None = None, days: int | None = None
+    ) -> List[Recommendation]:
+        days = days or settings.recents_window_days
         recent_shows = list(self.plex.recently_watched_shows(days=days, max_results=200))
         LOGGER.debug("Found recently watched shows", extra={"count": len(recent_shows)})
         return self._build_collection(
-            recent_shows, media_type="tv", collection_name="Recommended Shows", limit=limit
+            recent_shows,
+            media_type="tv",
+            collection_name="Recommended Shows",
+            limit=limit,
         )

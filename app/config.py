@@ -74,6 +74,15 @@ class Settings(BaseSettings):
     dashboard_timeout_seconds: float = 10.0
     recent_activity_timeout_seconds: float = 10.0
     recommendation_build_timeout_seconds: float = 120.0
+    cast_weight: float = 20.0
+    director_weight: float = 30.0
+    writer_weight: float = 20.0
+    genre_weight: float = 15.0
+    plot_weight: float = 25.0
+    year_weight: float = 10.0
+    recency_max_bonus: float = 8.0
+    recency_half_life_days: float = 45.0
+    year_half_life: float = 10.0
     model_config = SettingsConfigDict(
         env_file=".env",
         env_prefix="",

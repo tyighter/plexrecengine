@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import pickle
 import threading
 import time
@@ -11,6 +12,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import numpy as np
 
+from app.config import settings
 from app.services.generate_logging import get_generate_logger
 from app.services.plex_service import PlexService, get_plex_service
 
@@ -49,6 +51,7 @@ class PlexProfile:
     summary: str = ""
     year: Optional[int] = None
     added_at: Optional[datetime] = None
+    last_viewed_at: Optional[datetime] = None
     library: Optional[str] = None
 
 
@@ -106,6 +109,7 @@ class PlexIndex:
         summary = _normalize_summary(getattr(item, "summary", ""))
         year = getattr(item, "year", None)
         added_at = getattr(item, "addedAt", None)
+        last_viewed_at = getattr(item, "lastViewedAt", None)
         media_type = getattr(item, "type", "movie") or "movie"
 
         return PlexProfile(
@@ -119,6 +123,7 @@ class PlexIndex:
             summary=summary,
             year=year,
             added_at=added_at,
+            last_viewed_at=last_viewed_at,
             library=getattr(item, "librarySectionTitle", None),
         )
 
@@ -350,7 +355,18 @@ class PlexIndex:
             LOGGER.exception("Failed to compute plot similarity")
             return {}
 
-        return {key: float(score) for key, score in zip(keys, scores)}
+        raw_scores = np.array(scores, dtype=float)
+        if raw_scores.size == 0:
+            return {}
+
+        min_score = raw_scores.min()
+        max_score = raw_scores.max()
+        if math.isclose(max_score, min_score):
+            normalized_scores = np.ones_like(raw_scores)
+        else:
+            normalized_scores = (raw_scores - min_score) / (max_score - min_score)
+
+        return {key: float(score) for key, score in zip(keys, normalized_scores)}
 
     def related_profiles(
         self, source: PlexProfile, limit: Optional[int] = None
@@ -401,14 +417,58 @@ class PlexIndex:
             }
 
 
+def _overlap_ratio(a: Set[str], b: Set[str]) -> float:
+    if not a and not b:
+        return 0.0
+    union = a | b
+    if not union:
+        return 0.0
+    return len(a & b) / len(union)
+
+
+def _year_similarity(source_year: Optional[int], target_year: Optional[int]) -> float:
+    if not source_year or not target_year:
+        return 0.0
+    year_gap = abs(source_year - target_year)
+    if settings.year_half_life <= 0:
+        return 0.0
+    return math.exp(-year_gap / settings.year_half_life)
+
+
+def _recency_bonus(profile: PlexProfile) -> float:
+    recent_date = max(
+        [dt for dt in [profile.added_at, profile.last_viewed_at] if dt is not None],
+        default=None,
+    )
+    if recent_date is None:
+        return 0.0
+    age_days = (datetime.utcnow() - recent_date).total_seconds() / 86400.0
+    if age_days < 0:
+        age_days = 0.0
+    if settings.recency_half_life_days <= 0:
+        return 0.0
+    decay = math.exp(-age_days / settings.recency_half_life_days)
+    return settings.recency_max_bonus * decay
+
+
 def profile_similarity(source: PlexProfile, target: PlexProfile, plot_score: float = 0.0) -> Tuple[float, dict[str, float]]:
+    cast_similarity = _overlap_ratio(source.cast, target.cast)
+    director_similarity = _overlap_ratio(source.directors, target.directors)
+    writer_similarity = _overlap_ratio(source.writers, target.writers)
+    genre_similarity = _overlap_ratio(source.genres, target.genres)
+    year_similarity = _year_similarity(source.year, target.year)
+    recency = _recency_bonus(target)
+
     breakdown = {
-        "cast": 10.0 * len(source.cast & target.cast),
-        "directors": 30.0 * len(source.directors & target.directors),
-        "writers": 20.0 * len(source.writers & target.writers),
-        "genres": 10.0 * len(source.genres & target.genres),
-        "plot": round(plot_score * 50.0, 2),
+        "cast": cast_similarity * settings.cast_weight,
+        "directors": director_similarity * settings.director_weight,
+        "writers": writer_similarity * settings.writer_weight,
+        "genres": genre_similarity * settings.genre_weight,
+        "plot": plot_score * settings.plot_weight,
+        "year": year_similarity * settings.year_weight,
+        "recency": recency,
     }
+
     total = round(sum(breakdown.values()), 2)
     normalized = {key: round(value, 2) for key, value in breakdown.items()}
     return total, normalized

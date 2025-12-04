@@ -500,10 +500,11 @@ class PlexService:
         collection = self.ensure_collection(collection_name, section, items=items)
 
         sort_set = False
+        sort_kwargs = {"sort": "custom", "collectionSort": "custom"}
         sort_update = getattr(collection, "sortUpdate", None)
         if callable(sort_update):
             try:
-                sort_update(sort="custom")
+                sort_update(**sort_kwargs)
                 sort_set = True
                 LOGGER.debug(
                     "Configured Plex collection sort order to custom",
@@ -519,7 +520,7 @@ class PlexService:
             edit_fn = getattr(collection, "edit", None)
             if callable(edit_fn):
                 try:
-                    edit_fn(sort="custom")
+                    edit_fn(**sort_kwargs)
                     collection.reload()
                     sort_set = True
                     LOGGER.debug(

@@ -737,6 +737,215 @@ class PlexService:
         )
         return False
 
+    def apply_collection_sort_order(
+        self,
+        collection,
+        *,
+        collection_order: Optional[str],
+        sort_by: Optional[str],
+        section=None,
+    ) -> bool:
+        """Apply collection ordering even when Plex rejects non-native options.
+
+        Plex only allows a handful of collection orders (``alpha``, ``release``,
+        or ``custom``). When a collection advertises a different
+        ``collection_order`` we interpret that value as a search ``sort_by``
+        key, set the collection to custom ordering, and manually rearrange items
+        to mirror the search results. This enables more expressive collection
+        sorting while preserving Plex's native handling for the built-in modes.
+        """
+
+        desired_order = (collection_order or "").strip().lower()
+        collection_name = getattr(collection, "title", "unknown")
+
+        if desired_order in {"alpha", "release"}:
+            sort_kwargs = {"sort": desired_order, "collectionSort": desired_order}
+            sort_update = getattr(collection, "sortUpdate", None)
+            edit_fn = getattr(collection, "edit", None)
+            for func in (sort_update, edit_fn):
+                if not callable(func):
+                    continue
+                filtered_kwargs = self._filter_callable_kwargs(func, sort_kwargs)
+                try:
+                    func(**filtered_kwargs)
+                    collection.reload()
+                    LOGGER.debug(
+                        "Applied native Plex collection order",
+                        extra={"collection": collection_name, "order": desired_order},
+                    )
+                    COLLECTION_LOGGER.info(
+                        "Applied native Plex collection order",
+                        extra={"collection": collection_name, "order": desired_order},
+                    )
+                    return True
+                except Exception:
+                    LOGGER.exception(
+                        "Failed to apply native Plex collection order",
+                        extra={"collection": collection_name, "order": desired_order},
+                    )
+
+            return False
+
+        if desired_order == "custom":
+            return self._set_collection_custom_sort(collection, collection_name)
+
+        if not sort_by:
+            LOGGER.warning(
+                "Missing sort_by for custom Plex collection ordering",
+                extra={"collection": collection_name, "collection_order": collection_order},
+            )
+            COLLECTION_LOGGER.warning(
+                "Missing sort_by for custom Plex collection ordering",
+                extra={"collection": collection_name, "collection_order": collection_order},
+            )
+            return False
+
+        if section is None:
+            section = getattr(collection, "section", None) or getattr(
+                collection, "librarySection", None
+            )
+        if section is None:
+            section = self._find_section_for_item(collection)
+
+        if section is None:
+            LOGGER.warning(
+                "Unable to resolve section for Plex collection ordering",
+                extra={"collection": collection_name, "collection_order": collection_order},
+            )
+            return False
+
+        if not self._is_valid_sort(section, sort_by):
+            LOGGER.warning(
+                "Plex collection sort_by is not valid for section",
+                extra={
+                    "collection": collection_name,
+                    "collection_order": collection_order,
+                    "sort_by": sort_by,
+                    "section": getattr(section, "title", None),
+                },
+            )
+            COLLECTION_LOGGER.warning(
+                "Plex collection sort_by is not valid for section",
+                extra={
+                    "collection": collection_name,
+                    "collection_order": collection_order,
+                    "sort_by": sort_by,
+                    "section": getattr(section, "title", None),
+                },
+            )
+            return False
+
+        try:
+            desired_items = list(section.search(collection=collection, sort=sort_by))
+        except Exception:
+            LOGGER.exception(
+                "Failed to compute Plex collection ordering via search",
+                extra={
+                    "collection": collection_name,
+                    "collection_order": collection_order,
+                    "sort_by": sort_by,
+                    "section": getattr(section, "title", None),
+                },
+            )
+            COLLECTION_LOGGER.exception(
+                "Failed to compute Plex collection ordering via search",
+                extra={
+                    "collection": collection_name,
+                    "collection_order": collection_order,
+                    "sort_by": sort_by,
+                    "section": getattr(section, "title", None),
+                },
+            )
+            return False
+
+        if not desired_items:
+            LOGGER.warning(
+                "No Plex collection items returned for requested sort",
+                extra={
+                    "collection": collection_name,
+                    "collection_order": collection_order,
+                    "sort_by": sort_by,
+                    "section": getattr(section, "title", None),
+                },
+            )
+            return False
+
+        self._set_collection_custom_sort(collection, collection_name)
+        return self._reorder_collection_via_moves(
+            collection, desired_items, collection_name=collection_name
+        )
+
+    def _is_valid_sort(self, section, sort_by: str) -> bool:
+        """Validate that a sort key is supported by a Plex library section."""
+
+        if not sort_by:
+            return False
+
+        sort_key = sort_by.split(":", 1)[0]
+        try:
+            fields = section.listFields()
+        except Exception:
+            LOGGER.exception(
+                "Failed to load Plex section sort fields", extra={"section": getattr(section, "title", None)}
+            )
+            return False
+
+        for field in fields or []:
+            key = getattr(field, "key", None) or getattr(field, "name", None) or field
+            if isinstance(key, str) and key == sort_key:
+                return True
+            if isinstance(field, dict) and field.get("key") == sort_key:
+                return True
+
+        return False
+
+    def _reorder_collection_via_moves(
+        self, collection, items: list, *, collection_name: str | None = None
+    ) -> bool:
+        """Reorder collection items sequentially using ``moveItem`` calls."""
+
+        collection_name = collection_name or getattr(collection, "title", "unknown")
+        after = None
+        reordered = True
+
+        for item in items:
+            try:
+                if after is None:
+                    collection.moveItem(item)
+                else:
+                    collection.moveItem(item, after=after)
+                after = item
+            except Exception:
+                reordered = False
+                LOGGER.exception(
+                    "Failed to move Plex collection item",
+                    extra={
+                        "collection": collection_name,
+                        "item_title": getattr(item, "title", None),
+                        "rating_key": getattr(item, "ratingKey", None),
+                    },
+                )
+                COLLECTION_LOGGER.exception(
+                    "Failed to move Plex collection item",
+                    extra={
+                        "collection": collection_name,
+                        "item_title": getattr(item, "title", None),
+                        "rating_key": getattr(item, "ratingKey", None),
+                    },
+                )
+
+        if reordered:
+            LOGGER.debug(
+                "Applied custom Plex collection ordering via moveItem",
+                extra={"collection": collection_name, "item_count": len(items)},
+            )
+            COLLECTION_LOGGER.info(
+                "Applied custom Plex collection ordering via moveItem",
+                extra={"collection": collection_name, "item_count": len(items)},
+            )
+
+        return reordered
+
     @staticmethod
     def _filter_callable_kwargs(func, kwargs: dict) -> dict:
         """Return only keyword arguments accepted by the callable.

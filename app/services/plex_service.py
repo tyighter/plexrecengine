@@ -521,7 +521,7 @@ class PlexService:
             raise RuntimeError("Unable to determine library section for collection members")
 
         collection = self.ensure_collection(collection_name, section, items=items)
-        self._set_collection_custom_sort(collection, collection_name)
+        collection = self._set_collection_custom_sort(collection, collection_name)
 
         try:
             existing_items = list(collection.items())
@@ -563,6 +563,8 @@ class PlexService:
             )
             return
 
+        supports_reorder = callable(getattr(collection, "reorderItems", None))
+
         try:
             if existing_items:
                 collection.removeItems(existing_items)
@@ -580,7 +582,12 @@ class PlexService:
                         "removed_count": len(existing_items),
                     },
                 )
-            collection.addItems(items)
+
+            if supports_reorder:
+                collection.addItems(items)
+            else:
+                for item in items:
+                    collection.addItems([item])
         except Exception:
             LOGGER.exception(
                 "Failed to replace Plex collection items",
@@ -600,7 +607,11 @@ class PlexService:
             )
             return
 
-        reordered = self.reorder_collection_items(collection, items, collection_name)
+        reordered = (
+            self.reorder_collection_items(collection, items, collection_name)
+            if supports_reorder
+            else True
+        )
         if not reordered:
             LOGGER.warning(
                 "Unable to apply custom order to Plex collection; items may not match UI ordering",
@@ -608,6 +619,11 @@ class PlexService:
             )
             COLLECTION_LOGGER.warning(
                 "Unable to apply custom order to Plex collection; items may not match UI ordering",
+                extra={"collection": collection_name, "item_count": len(items)},
+            )
+        elif not supports_reorder:
+            COLLECTION_LOGGER.info(
+                "Plex collection does not support reordering; added items sequentially to preserve configured order",
                 extra={"collection": collection_name, "item_count": len(items)},
             )
 
@@ -752,7 +768,7 @@ class PlexService:
                 "Plex collection still missing reorderItems after refresh; ordering may require fallback",
                 extra={"collection": collection_name},
             )
-            COLLECTION_LOGGER.warning(
+            COLLECTION_LOGGER.info(
                 "Plex collection still missing reorderItems after refresh; ordering may require fallback",
                 extra={"collection": collection_name},
             )
@@ -818,9 +834,9 @@ class PlexService:
             "Plex collection object does not support reordering items",
             extra={"collection": collection_name},
         )
-        COLLECTION_LOGGER.warning(
-            "Plex collection object does not support reordering items",
-            extra={"collection": collection_name},
+        COLLECTION_LOGGER.info(
+            "Plex collection object does not support reordering items; relying on insertion order",
+            extra={"collection": collection_name, "item_count": len(rating_keys)},
         )
         return False
 

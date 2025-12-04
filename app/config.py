@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     dashboard_timeout_seconds: float = 10.0
     recent_activity_timeout_seconds: float = 10.0
     recommendation_build_timeout_seconds: float = 120.0
+    recents_window_days: int = 7
+    recommendations_per_recent: int = 3
     cast_weight: float = 20.0
     director_weight: float = 30.0
     writer_weight: float = 20.0
@@ -95,6 +97,15 @@ class Settings(BaseSettings):
     def split_library_names(cls, value):
         if isinstance(value, str):
             return [name.strip() for name in value.split(",") if name.strip()]
+        return value
+
+    @field_validator("recents_window_days", "recommendations_per_recent")
+    @classmethod
+    def positive_int(cls, value, info):
+        if value is None:
+            return value
+        if value < 1:
+            raise ValueError(f"{info.field_name.replace('_', ' ')} must be at least 1")
         return value
 
     @model_validator(mode="after")

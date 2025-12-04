@@ -505,6 +505,8 @@
             data-current-pool="{{ settings.related_pool_limit }}"
             data-allow-watched="{{ 'true' if settings.allow_watched_recommendations else 'false' }}"
             data-collection-order="{{ settings.collection_order }}"
+            data-recents-window-days="{{ settings.recents_window_days }}"
+            data-recommendations-per-recent="{{ settings.recommendations_per_recent }}"
         >
             <p><strong>Recommendation pool</strong></p>
             <p class="muted">Choose how many related titles to fetch before scoring. Set to 0 for unlimited.</p>
@@ -522,6 +524,30 @@
                 <label for="allow-watched" class="checkbox-row">
                     <input id="allow-watched" name="allow-watched" type="checkbox" />
                     <span>Allow watched items to appear in recommendations</span>
+                </label>
+            </div>
+            <p><strong>Recents window</strong></p>
+            <p class="muted">Control how many days of recent watches we consider and how many picks we save per item.</p>
+            <div class="grid-two-column">
+                <label for="recents-window-days">Days of history to include
+                    <input
+                        id="recents-window-days"
+                        name="recents-window-days"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value="{{ settings.recents_window_days }}"
+                    />
+                </label>
+                <label for="recommendations-per-recent">Recommendations per recent watch
+                    <input
+                        id="recommendations-per-recent"
+                        name="recommendations-per-recent"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value="{{ settings.recommendations_per_recent }}"
+                    />
                 </label>
             </div>
             <p><strong>Collection ordering</strong></p>
@@ -587,6 +613,8 @@
     const recommendationConfigSection = document.getElementById('recommendation-config');
     const relatedPoolInput = document.getElementById('related-pool-limit');
     const allowWatchedInput = document.getElementById('allow-watched');
+    const recentsWindowInput = document.getElementById('recents-window-days');
+    const recommendationsPerRecentInput = document.getElementById('recommendations-per-recent');
     const collectionOrderSelect = document.getElementById('collection-order');
     const recommendationSettingsStatus = document.getElementById('recommendation-settings-status');
     const refreshIndexButton = document.getElementById('refresh-index');
@@ -605,6 +633,22 @@
             (recommendationConfigSection?.dataset.allowWatched ?? 'false') === 'true';
         if (allowWatchedInput) {
             allowWatchedInput.checked = allowWatchedValue;
+        }
+
+        const recentsWindowValue =
+            recommendationConfigSection?.dataset.recentsWindowDays ||
+            recentsWindowInput?.value ||
+            '7';
+        if (recentsWindowInput) {
+            recentsWindowInput.value = recentsWindowValue;
+        }
+
+        const recommendationsPerRecentValue =
+            recommendationConfigSection?.dataset.recommendationsPerRecent ||
+            recommendationsPerRecentInput?.value ||
+            '3';
+        if (recommendationsPerRecentInput) {
+            recommendationsPerRecentInput.value = recommendationsPerRecentValue;
         }
 
         const collectionOrderValue =
@@ -1167,6 +1211,21 @@
             recommendationSettingsStatus.textContent = 'Enter a non-negative number (0 for unlimited).';
             return;
         }
+
+        const parsedRecentsWindow = Number.parseInt(recentsWindowInput?.value ?? '7', 10);
+        if (Number.isNaN(parsedRecentsWindow) || parsedRecentsWindow < 1) {
+            recommendationSettingsStatus.textContent = 'Enter a recents window of at least 1 day.';
+            return;
+        }
+
+        const parsedRecommendationsPerRecent = Number.parseInt(
+            recommendationsPerRecentInput?.value ?? '3',
+            10,
+        );
+        if (Number.isNaN(parsedRecommendationsPerRecent) || parsedRecommendationsPerRecent < 1) {
+            recommendationSettingsStatus.textContent = 'Enter at least 1 recommendation per recent watch.';
+            return;
+        }
         const selectedOrder = collectionOrderSelect?.value || 'highest_score';
         const allowedOrders = new Set([
             'random',
@@ -1191,6 +1250,8 @@
                     relatedPoolLimit: parsedLimit,
                     allowWatched: allowWatchedInput?.checked ?? true,
                     collectionOrder: selectedOrder,
+                    recentsWindowDays: parsedRecentsWindow,
+                    recommendationsPerRecent: parsedRecommendationsPerRecent,
                 }),
             });
             if (!response.ok) {
@@ -1201,6 +1262,8 @@
             recommendationConfigSection.dataset.currentPool = String(parsedLimit);
             recommendationConfigSection.dataset.allowWatched = allowWatchedInput?.checked ? 'true' : 'false';
             recommendationConfigSection.dataset.collectionOrder = selectedOrder;
+            recommendationConfigSection.dataset.recentsWindowDays = String(parsedRecentsWindow);
+            recommendationConfigSection.dataset.recommendationsPerRecent = String(parsedRecommendationsPerRecent);
             syncRecommendationSettingsForm();
             recommendationSettingsStatus.textContent = 'Saved recommendation settings. Reload to apply changes.';
         } catch (err) {

@@ -605,13 +605,18 @@ class PlexService:
             else:
                 for index, item in enumerate(items, start=1):
                     collection.addItems([item])
+                    item_title = getattr(item, "title", None)
+                    item_rating_key = getattr(item, "ratingKey", None)
                     COLLECTION_LOGGER.info(
-                        "Added Plex collection item sequentially",
+                        "Added Plex collection item sequentially: %s (ratingKey=%s) at position %s",
+                        item_title,
+                        item_rating_key,
+                        index,
                         extra={
                             "collection": collection_name,
                             "position": index,
-                            "title": getattr(item, "title", None),
-                            "rating_key": getattr(item, "ratingKey", None),
+                            "title": item_title,
+                            "rating_key": item_rating_key,
                         },
                     )
         except Exception:

@@ -498,46 +498,8 @@ class PlexService:
             raise RuntimeError("Unable to determine library section for collection members")
 
         collection = self.ensure_collection(collection_name, section, items=items)
+        self._set_collection_custom_sort(collection, collection_name)
 
-        sort_set = False
-        sort_kwargs = {"sort": "custom", "collectionSort": "custom"}
-        sort_update = getattr(collection, "sortUpdate", None)
-        if callable(sort_update):
-            try:
-                sort_update(**sort_kwargs)
-                sort_set = True
-                LOGGER.debug(
-                    "Configured Plex collection sort order to custom",
-                    extra={"collection": collection_name},
-                )
-            except Exception:
-                LOGGER.exception(
-                    "Failed to configure Plex collection sort order via sortUpdate",
-                    extra={"collection": collection_name},
-                )
-
-        if not sort_set:
-            edit_fn = getattr(collection, "edit", None)
-            if callable(edit_fn):
-                try:
-                    edit_fn(**sort_kwargs)
-                    collection.reload()
-                    sort_set = True
-                    LOGGER.debug(
-                        "Configured Plex collection sort order to custom via edit",
-                        extra={"collection": collection_name},
-                    )
-                except Exception:
-                    LOGGER.exception(
-                        "Failed to configure Plex collection sort order via edit",
-                        extra={"collection": collection_name},
-                    )
-
-        if not sort_set:
-            LOGGER.warning(
-                "Unable to set Plex collection sort order to custom; proceeding with existing sort",  # noqa: E501
-                extra={"collection": collection_name},
-            )
         try:
             existing_items = list(collection.items())
         except Exception:
@@ -588,6 +550,13 @@ class PlexService:
             )
             return
 
+        reordered = self.reorder_collection_items(collection, items, collection_name)
+        if not reordered:
+            LOGGER.warning(
+                "Unable to apply custom order to Plex collection; items may not match UI ordering",
+                extra={"collection": collection_name, "item_count": len(items)},
+            )
+
         LOGGER.debug(
             "Rebuilt Plex collection items in configured order",
             extra={
@@ -596,6 +565,90 @@ class PlexService:
                 "section": getattr(section, "title", None),
             },
         )
+
+    def _set_collection_custom_sort(self, collection, collection_name: str) -> bool:
+        sort_kwargs = {"sort": "custom", "collectionSort": "custom"}
+        sort_update = getattr(collection, "sortUpdate", None)
+        if callable(sort_update):
+            try:
+                sort_update(**sort_kwargs)
+                LOGGER.debug(
+                    "Configured Plex collection sort order to custom",
+                    extra={"collection": collection_name},
+                )
+                return True
+            except Exception:
+                LOGGER.exception(
+                    "Failed to configure Plex collection sort order via sortUpdate",
+                    extra={"collection": collection_name},
+                )
+
+        edit_fn = getattr(collection, "edit", None)
+        if callable(edit_fn):
+            try:
+                edit_fn(**sort_kwargs)
+                collection.reload()
+                LOGGER.debug(
+                    "Configured Plex collection sort order to custom via edit",
+                    extra={"collection": collection_name},
+                )
+                return True
+            except Exception:
+                LOGGER.exception(
+                    "Failed to configure Plex collection sort order via edit",
+                    extra={"collection": collection_name},
+                )
+
+        LOGGER.warning(
+            "Unable to set Plex collection sort order to custom; proceeding with existing sort",
+            extra={"collection": collection_name},
+        )
+        return False
+
+    def reorder_collection_items(self, collection, items: Iterable, collection_name: str) -> bool:
+        rating_keys = [
+            getattr(item, "ratingKey", None)
+            for item in items
+            if hasattr(item, "ratingKey")
+        ]
+        rating_keys = [key for key in rating_keys if key is not None]
+
+        if not rating_keys:
+            LOGGER.warning(
+                "Unable to reorder Plex collection items without rating keys",
+                extra={"collection": collection_name},
+            )
+            return False
+
+        self._set_collection_custom_sort(collection, collection_name)
+
+        reorder_fn = getattr(collection, "reorderItems", None)
+        if callable(reorder_fn):
+            try:
+                reorder_fn(rating_keys)
+                LOGGER.debug(
+                    "Applied custom Plex collection ordering",
+                    extra={
+                        "collection": collection_name,
+                        "item_count": len(rating_keys),
+                    },
+                )
+                return True
+            except Exception:
+                LOGGER.exception(
+                    "Failed to reorder Plex collection items",
+                    extra={
+                        "collection": collection_name,
+                        "item_count": len(rating_keys),
+                    },
+                )
+                return False
+
+        LOGGER.warning(
+            "Plex collection object does not support reordering items",
+            extra={"collection": collection_name},
+        )
+        return False
 
     def related_items(self, item, media_type: str, limit: Optional[int] = None):
         """Return Plex-provided related items for a given media item."""

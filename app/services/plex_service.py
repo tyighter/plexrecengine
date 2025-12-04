@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import inspect
 import random
 from typing import Iterable, List, Optional
 
@@ -631,8 +632,9 @@ class PlexService:
         sort_kwargs = {"sort": "custom", "collectionSort": "custom"}
         sort_update = getattr(collection, "sortUpdate", None)
         if callable(sort_update):
+            filtered_kwargs = self._filter_callable_kwargs(sort_update, sort_kwargs)
             try:
-                sort_update(**sort_kwargs)
+                sort_update(**filtered_kwargs)
                 collection.reload()
                 LOGGER.debug(
                     "Configured Plex collection sort order to custom",
@@ -655,8 +657,9 @@ class PlexService:
 
         edit_fn = getattr(collection, "edit", None)
         if callable(edit_fn):
+            filtered_kwargs = self._filter_callable_kwargs(edit_fn, sort_kwargs)
             try:
-                edit_fn(**sort_kwargs)
+                edit_fn(**filtered_kwargs)
                 collection.reload()
                 LOGGER.debug(
                     "Configured Plex collection sort order to custom via edit",
@@ -686,6 +689,23 @@ class PlexService:
             extra={"collection": collection_name},
         )
         return False
+
+    @staticmethod
+    def _filter_callable_kwargs(func, kwargs: dict) -> dict:
+        """Return only keyword arguments accepted by the callable.
+
+        Plex library versions vary in supported parameters. Filtering the kwargs
+        prevents passing unsupported keys (e.g., ``collectionSort``) that would
+        otherwise raise ``TypeError`` and interrupt collection ordering.
+        """
+
+        try:
+            signature = inspect.signature(func)
+        except (TypeError, ValueError):
+            return kwargs
+
+        filtered = {k: v for k, v in kwargs.items() if k in signature.parameters}
+        return filtered if filtered else kwargs
 
     def _ensure_collection_custom_capabilities(self, collection, collection_name: str, section=None):
         """Ensure a collection supports custom sorting and exposes reordering.

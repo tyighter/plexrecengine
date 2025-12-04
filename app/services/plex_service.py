@@ -580,8 +580,6 @@ class PlexService:
             )
             return
 
-        supports_reorder = callable(getattr(collection, "reorderItems", None))
-
         try:
             if existing_items:
                 collection.removeItems(existing_items)
@@ -600,25 +598,7 @@ class PlexService:
                     },
                 )
 
-            if supports_reorder:
-                collection.addItems(items)
-            else:
-                for index, item in enumerate(items, start=1):
-                    collection.addItems([item])
-                    item_title = getattr(item, "title", None)
-                    item_rating_key = getattr(item, "ratingKey", None)
-                    COLLECTION_LOGGER.info(
-                        "Added Plex collection item sequentially: %s (ratingKey=%s) at position %s",
-                        item_title,
-                        item_rating_key,
-                        index,
-                        extra={
-                            "collection": collection_name,
-                            "position": index,
-                            "title": item_title,
-                            "rating_key": item_rating_key,
-                        },
-                    )
+            collection.addItems(items)
         except Exception:
             LOGGER.exception(
                 "Failed to replace Plex collection items",
@@ -638,11 +618,7 @@ class PlexService:
             )
             return
 
-        reordered = (
-            self.reorder_collection_items(collection, items, collection_name)
-            if supports_reorder
-            else True
-        )
+        reordered = self.reorder_collection_items(collection, items, collection_name)
         if not reordered:
             LOGGER.warning(
                 "Unable to apply custom order to Plex collection; items may not match UI ordering",
@@ -650,11 +626,6 @@ class PlexService:
             )
             COLLECTION_LOGGER.warning(
                 "Unable to apply custom order to Plex collection; items may not match UI ordering",
-                extra={"collection": collection_name, "item_count": len(items)},
-            )
-        elif not supports_reorder:
-            COLLECTION_LOGGER.info(
-                "Plex collection does not support reordering; added items sequentially to preserve configured order",
                 extra={"collection": collection_name, "item_count": len(items)},
             )
 
@@ -1016,9 +987,10 @@ class PlexService:
         return collection
 
     def reorder_collection_items(self, collection, items: Iterable, collection_name: str) -> bool:
+        ordered_items = list(items)
         rating_keys = [
             getattr(item, "ratingKey", None)
-            for item in items
+            for item in ordered_items
             if hasattr(item, "ratingKey")
         ]
         rating_keys = [key for key in rating_keys if key is not None]
@@ -1068,17 +1040,19 @@ class PlexService:
                     "Failed to reorder Plex collection items",
                     extra={"collection": collection_name, "desired_order": rating_keys},
                 )
-                return False
+                # Fall back to move-based reordering below
 
-        LOGGER.warning(
-            "Plex collection object does not support reordering items",
-            extra={"collection": collection_name},
-        )
-        COLLECTION_LOGGER.info(
-            "Plex collection object does not support reordering items; relying on insertion order",
+        LOGGER.info(
+            "Falling back to moveItem-based Plex collection reordering",
             extra={"collection": collection_name, "item_count": len(rating_keys)},
         )
-        return False
+        COLLECTION_LOGGER.info(
+            "Falling back to moveItem-based Plex collection reordering",
+            extra={"collection": collection_name, "item_count": len(rating_keys)},
+        )
+        return self._reorder_collection_via_moves(
+            collection, ordered_items, collection_name=collection_name
+        )
 
     def related_items(self, item, media_type: str, limit: Optional[int] = None):
         """Return Plex-provided related items for a given media item."""

@@ -1,17 +1,18 @@
 from datetime import datetime, timedelta
 import random
-from datetime import datetime, timedelta
 from typing import Iterable, List, Optional
 
 from plexapi.exceptions import NotFound
 from plexapi.server import PlexServer
 
 from app.config import settings
+from app.services.generate_logging import get_collections_logger
 from app.services.plex_logging import get_plex_logger
 from app.services.tautulli_service import get_tautulli_client
 
 
 LOGGER = get_plex_logger()
+COLLECTION_LOGGER = get_collections_logger()
 
 
 class PlexService:
@@ -440,12 +441,25 @@ class PlexService:
 
     def ensure_collection(self, title: str, section, items=None):
         existing = next((c for c in section.collections() if c.title == title), None)
-        LOGGER.debug(
-            "Ensuring Plex collection exists", extra={"title": title, "section": getattr(section, "title", None)}
-        )
         if existing:
+            LOGGER.debug(
+                "Ensuring Plex collection exists",
+                extra={"title": title, "section": getattr(section, "title", None)},
+            )
+            COLLECTION_LOGGER.debug(
+                "Ensuring Plex collection exists",
+                extra={"title": title, "section": getattr(section, "title", None)},
+            )
             return self._ensure_collection_custom_capabilities(existing, title, section)
 
+        LOGGER.info(
+            "Creating new Plex collection",
+            extra={"title": title, "section": getattr(section, "title", None)},
+        )
+        COLLECTION_LOGGER.info(
+            "Creating new Plex collection",
+            extra={"title": title, "section": getattr(section, "title", None)},
+        )
         created = section.createCollection(title, items=items)
         return self._ensure_collection_custom_capabilities(created, title, section)
 
@@ -491,7 +505,14 @@ class PlexService:
 
     def set_collection_members(self, collection_name: str, items: Iterable):
         items = list(items)
+        COLLECTION_LOGGER.info(
+            "Updating collection members",
+            extra={"collection": collection_name, "item_count": len(items)},
+        )
         if not items:
+            COLLECTION_LOGGER.warning(
+                "Skipping empty collection update", extra={"collection": collection_name}
+            )
             return
 
         section = self._find_section_for_item(items[0])
@@ -503,8 +524,16 @@ class PlexService:
 
         try:
             existing_items = list(collection.items())
+            COLLECTION_LOGGER.debug(
+                "Loaded existing Plex collection items",
+                extra={"collection": collection_name, "existing_count": len(existing_items)},
+            )
         except Exception:
             LOGGER.exception(
+                "Failed to load existing Plex collection items",
+                extra={"collection": collection_name},
+            )
+            COLLECTION_LOGGER.exception(
                 "Failed to load existing Plex collection items",
                 extra={"collection": collection_name},
             )
@@ -527,12 +556,23 @@ class PlexService:
                     "item_count": len(items),
                 },
             )
+            COLLECTION_LOGGER.info(
+                "Plex collection already up to date",
+                extra={"collection": collection_name, "item_count": len(items)},
+            )
             return
 
         try:
             if existing_items:
                 collection.removeItems(existing_items)
                 LOGGER.debug(
+                    "Cleared existing Plex collection items",
+                    extra={
+                        "collection": collection_name,
+                        "removed_count": len(existing_items),
+                    },
+                )
+                COLLECTION_LOGGER.debug(
                     "Cleared existing Plex collection items",
                     extra={
                         "collection": collection_name,
@@ -549,6 +589,14 @@ class PlexService:
                     "section": getattr(section, "title", None),
                 },
             )
+            COLLECTION_LOGGER.exception(
+                "Failed to replace Plex collection items",
+                extra={
+                    "collection": collection_name,
+                    "target_count": len(items),
+                    "section": getattr(section, "title", None),
+                },
+            )
             return
 
         reordered = self.reorder_collection_items(collection, items, collection_name)
@@ -557,8 +605,20 @@ class PlexService:
                 "Unable to apply custom order to Plex collection; items may not match UI ordering",
                 extra={"collection": collection_name, "item_count": len(items)},
             )
+            COLLECTION_LOGGER.warning(
+                "Unable to apply custom order to Plex collection; items may not match UI ordering",
+                extra={"collection": collection_name, "item_count": len(items)},
+            )
 
         LOGGER.debug(
+            "Rebuilt Plex collection items in configured order",
+            extra={
+                "collection": collection_name,
+                "item_count": len(items),
+                "section": getattr(section, "title", None),
+            },
+        )
+        COLLECTION_LOGGER.info(
             "Rebuilt Plex collection items in configured order",
             extra={
                 "collection": collection_name,
@@ -573,13 +633,22 @@ class PlexService:
         if callable(sort_update):
             try:
                 sort_update(**sort_kwargs)
+                collection.reload()
                 LOGGER.debug(
+                    "Configured Plex collection sort order to custom",
+                    extra={"collection": collection_name},
+                )
+                COLLECTION_LOGGER.debug(
                     "Configured Plex collection sort order to custom",
                     extra={"collection": collection_name},
                 )
                 return True
             except Exception:
                 LOGGER.exception(
+                    "Failed to configure Plex collection sort order via sortUpdate",
+                    extra={"collection": collection_name},
+                )
+                COLLECTION_LOGGER.exception(
                     "Failed to configure Plex collection sort order via sortUpdate",
                     extra={"collection": collection_name},
                 )
@@ -593,14 +662,26 @@ class PlexService:
                     "Configured Plex collection sort order to custom via edit",
                     extra={"collection": collection_name},
                 )
+                COLLECTION_LOGGER.debug(
+                    "Configured Plex collection sort order to custom via edit",
+                    extra={"collection": collection_name},
+                )
                 return True
             except Exception:
                 LOGGER.exception(
                     "Failed to configure Plex collection sort order via edit",
                     extra={"collection": collection_name},
                 )
+                COLLECTION_LOGGER.exception(
+                    "Failed to configure Plex collection sort order via edit",
+                    extra={"collection": collection_name},
+                )
 
         LOGGER.warning(
+            "Unable to set Plex collection sort order to custom; proceeding with existing sort",
+            extra={"collection": collection_name},
+        )
+        COLLECTION_LOGGER.warning(
             "Unable to set Plex collection sort order to custom; proceeding with existing sort",
             extra={"collection": collection_name},
         )
@@ -625,6 +706,10 @@ class PlexService:
                     "Failed to reload Plex collection when enabling custom ordering",
                     extra={"collection": collection_name},
                 )
+                COLLECTION_LOGGER.exception(
+                    "Failed to reload Plex collection when enabling custom ordering",
+                    extra={"collection": collection_name},
+                )
 
         if not callable(getattr(collection, "reorderItems", None)) and section is not None:
             try:
@@ -637,9 +722,17 @@ class PlexService:
                     "Failed to refresh Plex collection capabilities via section lookup",
                     extra={"collection": collection_name},
                 )
+                COLLECTION_LOGGER.exception(
+                    "Failed to refresh Plex collection capabilities via section lookup",
+                    extra={"collection": collection_name},
+                )
 
         if not callable(getattr(collection, "reorderItems", None)):
             LOGGER.debug(
+                "Plex collection still missing reorderItems after refresh; ordering may require fallback",
+                extra={"collection": collection_name},
+            )
+            COLLECTION_LOGGER.warning(
                 "Plex collection still missing reorderItems after refresh; ordering may require fallback",
                 extra={"collection": collection_name},
             )
@@ -659,6 +752,10 @@ class PlexService:
                 "Unable to reorder Plex collection items without rating keys",
                 extra={"collection": collection_name},
             )
+            COLLECTION_LOGGER.warning(
+                "Unable to reorder Plex collection items without rating keys",
+                extra={"collection": collection_name},
+            )
             return False
 
         self._set_collection_custom_sort(collection, collection_name)
@@ -674,6 +771,14 @@ class PlexService:
                         "item_count": len(rating_keys),
                     },
                 )
+                COLLECTION_LOGGER.info(
+                    "Applied custom Plex collection ordering",
+                    extra={
+                        "collection": collection_name,
+                        "item_count": len(rating_keys),
+                        "rating_keys": rating_keys,
+                    },
+                )
                 return True
             except Exception:
                 LOGGER.exception(
@@ -683,9 +788,17 @@ class PlexService:
                         "item_count": len(rating_keys),
                     },
                 )
+                COLLECTION_LOGGER.exception(
+                    "Failed to reorder Plex collection items",
+                    extra={"collection": collection_name, "desired_order": rating_keys},
+                )
                 return False
 
         LOGGER.warning(
+            "Plex collection object does not support reordering items",
+            extra={"collection": collection_name},
+        )
+        COLLECTION_LOGGER.warning(
             "Plex collection object does not support reordering items",
             extra={"collection": collection_name},
         )

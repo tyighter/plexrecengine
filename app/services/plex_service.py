@@ -521,7 +521,7 @@ class PlexService:
             raise RuntimeError("Unable to determine library section for collection members")
 
         collection = self.ensure_collection(collection_name, section, items=items)
-        collection = self._set_collection_custom_sort(collection, collection_name)
+        self._set_collection_custom_sort(collection, collection_name)
 
         try:
             existing_items = list(collection.items())

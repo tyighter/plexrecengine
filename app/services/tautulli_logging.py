@@ -71,7 +71,7 @@ def get_tautulli_logger() -> logging.Logger:
 
     if not logger.handlers:
         formatter = logging.Formatter(_DEF_FORMAT)
-        handler = logging.FileHandler(LOG_PATH, mode="a", encoding="utf-8")
+        handler = logging.FileHandler(LOG_PATH, mode="w", encoding="utf-8")
         handler.setLevel(logging.DEBUG)
         handler.setFormatter(formatter)
         logger.addHandler(handler)

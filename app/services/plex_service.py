@@ -586,8 +586,17 @@ class PlexService:
             if supports_reorder:
                 collection.addItems(items)
             else:
-                for item in items:
+                for index, item in enumerate(items, start=1):
                     collection.addItems([item])
+                    COLLECTION_LOGGER.info(
+                        "Added Plex collection item sequentially",
+                        extra={
+                            "collection": collection_name,
+                            "position": index,
+                            "title": getattr(item, "title", None),
+                            "rating_key": getattr(item, "ratingKey", None),
+                        },
+                    )
         except Exception:
             LOGGER.exception(
                 "Failed to replace Plex collection items",

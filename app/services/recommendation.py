@@ -333,36 +333,6 @@ class RecommendationEngine:
 
         return sorted(ordered, key=lambda rec: rec.score, reverse=True)
 
-    def _order_collection_items(
-        self, items: List[tuple[Recommendation, object]]
-    ) -> List[object]:
-        order = (settings.collection_order or "highest_score").lower()
-        ordered = list(items)
-
-        def _year(rec: Recommendation, item: object):
-            if rec.year:
-                return rec.year
-            return getattr(item, "year", None) or getattr(
-                getattr(item, "originallyAvailableAt", None), "year", 9999
-            )
-
-        if order == "random":
-            random.shuffle(ordered)
-        elif order == "recommendation_order":
-            return [item for _, item in ordered]
-        elif order == "alphabetical":
-            ordered.sort(key=lambda pair: (pair[0].title or getattr(pair[1], "title", "")))
-        elif order == "oldest_first":
-            ordered.sort(key=lambda pair: (_year(pair[0], pair[1]) or 9999, pair[0].title or ""))
-        elif order == "newest_first":
-            ordered.sort(key=lambda pair: (-(
-                _year(pair[0], pair[1]) or 0
-            ), pair[0].title or ""))
-        else:
-            ordered.sort(key=lambda pair: pair[0].score, reverse=True)
-
-        return [item for _, item in ordered]
-
     def _refresh_collection(self, collection_name: str, recs: List[Recommendation]):
         items: List[tuple[Recommendation, object]] = []
         for rec in recs:
@@ -378,7 +348,10 @@ class RecommendationEngine:
             if item:
                 items.append((rec, item))
         try:
-            ordered_items = self._order_collection_items(items)
+            # ``recs`` have already been ordered according to the configured collection
+            # preference via ``_order_recommendations``. Preserve that sequence so the
+            # Plex collection mirrors the order shown in the UI.
+            ordered_items = [item for _, item in items]
             self.plex.set_collection_members(collection_name, ordered_items)
         except Exception:
             LOGGER.exception("Failed to refresh Plex collection", extra={"collection": collection_name})

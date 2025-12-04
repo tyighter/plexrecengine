@@ -444,9 +444,10 @@ class PlexService:
             "Ensuring Plex collection exists", extra={"title": title, "section": getattr(section, "title", None)}
         )
         if existing:
-            return existing
+            return self._ensure_collection_custom_capabilities(existing, title, section)
 
-        return section.createCollection(title, items=items)
+        created = section.createCollection(title, items=items)
+        return self._ensure_collection_custom_capabilities(created, title, section)
 
     def fetch_item(self, rating_key, *, extra: Optional[dict] = None):
         """Fetch a Plex item by rating key or metadata path.
@@ -604,6 +605,46 @@ class PlexService:
             extra={"collection": collection_name},
         )
         return False
+
+    def _ensure_collection_custom_capabilities(self, collection, collection_name: str, section=None):
+        """Ensure a collection supports custom sorting and exposes reordering.
+
+        Some Plex servers do not expose ``reorderItems`` or allow custom sorting
+        until after a collection has been edited or reloaded. Because we create
+        collections ourselves, proactively configure custom sort flags and try to
+        refresh the object so ordering can be applied reliably.
+        """
+
+        self._set_collection_custom_sort(collection, collection_name)
+
+        if not callable(getattr(collection, "reorderItems", None)):
+            try:
+                collection.reload()
+            except Exception:
+                LOGGER.exception(
+                    "Failed to reload Plex collection when enabling custom ordering",
+                    extra={"collection": collection_name},
+                )
+
+        if not callable(getattr(collection, "reorderItems", None)) and section is not None:
+            try:
+                refreshed = section.collection(collection_name)
+                if refreshed:
+                    self._set_collection_custom_sort(refreshed, collection_name)
+                    collection = refreshed
+            except Exception:
+                LOGGER.exception(
+                    "Failed to refresh Plex collection capabilities via section lookup",
+                    extra={"collection": collection_name},
+                )
+
+        if not callable(getattr(collection, "reorderItems", None)):
+            LOGGER.debug(
+                "Plex collection still missing reorderItems after refresh; ordering may require fallback",
+                extra={"collection": collection_name},
+            )
+
+        return collection
 
     def reorder_collection_items(self, collection, items: Iterable, collection_name: str) -> bool:
         rating_keys = [

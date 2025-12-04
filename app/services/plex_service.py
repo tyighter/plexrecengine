@@ -606,20 +606,12 @@ class PlexService:
         return False
 
     def reorder_collection_items(self, collection, items: Iterable, collection_name: str) -> bool:
-        rating_keys = []
-        metadata_paths = []
-        for item in items:
-            if not hasattr(item, "ratingKey"):
-                continue
-            rating_key = getattr(item, "ratingKey", None)
-            key_path = getattr(item, "key", None)
-            if rating_key is None:
-                continue
-            rating_keys.append(rating_key)
-            if isinstance(key_path, str) and key_path.startswith("/library/metadata/"):
-                metadata_paths.append(key_path)
-            else:
-                metadata_paths.append(f"/library/metadata/{rating_key}")
+        rating_keys = [
+            getattr(item, "ratingKey", None)
+            for item in items
+            if hasattr(item, "ratingKey")
+        ]
+        rating_keys = [key for key in rating_keys if key is not None]
 
         if not rating_keys:
             LOGGER.warning(
@@ -628,7 +620,7 @@ class PlexService:
             )
             return False
 
-        custom_sort = self._set_collection_custom_sort(collection, collection_name)
+        self._set_collection_custom_sort(collection, collection_name)
 
         reorder_fn = getattr(collection, "reorderItems", None)
         if callable(reorder_fn):
@@ -650,70 +642,13 @@ class PlexService:
                         "item_count": len(rating_keys),
                     },
                 )
+                return False
 
-        applied = self._reorder_collection_items_via_api(
-            collection, metadata_paths, collection_name
+        LOGGER.warning(
+            "Plex collection object does not support reordering items",
+            extra={"collection": collection_name},
         )
-        if applied:
-            return True
-
-        if custom_sort:
-            LOGGER.warning(
-                "Custom sort configured but unable to reorder Plex collection items",
-                extra={"collection": collection_name},
-            )
-        else:
-            LOGGER.warning(
-                "Unable to apply custom sort or reorder Plex collection items",
-                extra={"collection": collection_name},
-            )
         return False
-
-    def _reorder_collection_items_via_api(
-        self, collection, metadata_paths: List[str], collection_name: str
-    ) -> bool:
-        server = getattr(collection, "_server", None)
-        collection_key = getattr(collection, "key", None)
-        if not server or not collection_key:
-            LOGGER.warning(
-                "Collection object missing server or key for manual reorder",
-                extra={"collection": collection_name},
-            )
-            return False
-
-        if not metadata_paths:
-            LOGGER.warning(
-                "Unable to reorder Plex collection without metadata paths",
-                extra={"collection": collection_name},
-            )
-            return False
-
-        try:
-            order_param = ",".join(metadata_paths)
-            collection_path = (
-                f"{collection_key}/items"
-                if str(collection_key).startswith("/")
-                else f"/library/collections/{collection_key}/items"
-            )
-            server.query(
-                collection_path,
-                method=server._session.put,
-                params={"uri": order_param, "collectionSort": "custom", "sort": "custom"},
-            )
-            LOGGER.debug(
-                "Applied custom Plex collection ordering via direct API call",
-                extra={
-                    "collection": collection_name,
-                    "item_count": len(metadata_paths),
-                },
-            )
-            return True
-        except Exception:
-            LOGGER.exception(
-                "Failed to reorder Plex collection items via direct API call",
-                extra={"collection": collection_name, "item_count": len(metadata_paths)},
-            )
-            return False
 
     def related_items(self, item, media_type: str, limit: Optional[int] = None):
         """Return Plex-provided related items for a given media item."""

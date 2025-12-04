@@ -7,6 +7,7 @@ LOG_DIR = Path("/app/logs")
 LOG_FILE = LOG_DIR / "generate.log"
 SCORING_LOG_FILE = LOG_DIR / "scoring.log"
 WEBUI_LOG_FILE = LOG_DIR / "webui.log"
+COLLECTIONS_LOG_FILE = LOG_DIR / "collections.log"
 
 
 _DEF_FORMAT = "%(asctime)s [%(levelname)s] %(name)s - %(message)s"
@@ -65,3 +66,14 @@ def get_webui_logger() -> logging.Logger:
     """
 
     return _configure_logger("webui", WEBUI_LOG_FILE, console_level=logging.INFO)
+
+
+def get_collections_logger() -> logging.Logger:
+    """Return a shared logger for collection creation and ordering.
+
+    Detailed information about collection assembly, ordering decisions, and Plex
+    interactions are written to ``/app/logs/collections.log`` to troubleshoot
+    ordering discrepancies without duplicating scoring details.
+    """
+
+    return _configure_logger("collections", COLLECTIONS_LOG_FILE)

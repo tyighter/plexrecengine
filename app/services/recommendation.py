@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 
 from app.config import settings
-from app.services.generate_logging import get_generate_logger, get_scoring_logger
+from app.services.generate_logging import (
+    get_collections_logger,
+    get_generate_logger,
+    get_scoring_logger,
+)
 from app.services.plex_index import PlexIndex, PlexProfile, profile_similarity
 from app.services.plex_service import PlexService
 
@@ -25,6 +29,7 @@ class Recommendation:
 
 LOGGER = get_generate_logger()
 SCORING_LOGGER = get_scoring_logger()
+COLLECTION_LOGGER = get_collections_logger()
 
 
 class RecommendationEngine:
@@ -282,6 +287,15 @@ class RecommendationEngine:
     def _build_collection(
         self, recent_items: List, media_type: str, collection_name: str, limit: int
     ) -> List[Recommendation]:
+        COLLECTION_LOGGER.info(
+            "Starting collection build",
+            extra={
+                "collection": collection_name,
+                "media_type": media_type,
+                "recent_items": len(recent_items),
+                "limit": limit,
+            },
+        )
         picks_per_source = 3
         candidates_by_source: dict[int, List[Recommendation]] = {}
         source_order: List[int] = []
@@ -291,9 +305,26 @@ class RecommendationEngine:
                 item, media_type=media_type, count=picks_per_source * 3
             )
             if not recs:
+                COLLECTION_LOGGER.debug(
+                    "Skipping source with no recommendations",
+                    extra={
+                        "collection": collection_name,
+                        "media_type": media_type,
+                        "source_rating_key": getattr(item, "ratingKey", None),
+                    },
+                )
                 continue
             candidates_by_source[source_id] = recs
             source_order.append(source_id)
+
+            COLLECTION_LOGGER.debug(
+                "Collected recommendations for source",
+                extra={
+                    "collection": collection_name,
+                    "source_rating_key": getattr(item, "ratingKey", None),
+                    "candidates": len(recs),
+                },
+            )
 
         selected_by_source = self._resolve_conflicts(candidates_by_source, picks_per_source)
 
@@ -311,6 +342,15 @@ class RecommendationEngine:
         LOGGER.debug(
             "Compiled %s recommendations", collection_name,
             extra={"sources": len(source_order), "final": len(final)},
+        )
+        COLLECTION_LOGGER.info(
+            "Compiled ordered recommendations",
+            extra={
+                "collection": collection_name,
+                "sources": len(source_order),
+                "final": len(final),
+                "order": (settings.collection_order or "highest_score").lower(),
+            },
         )
         self._refresh_collection(collection_name, final)
         return final
@@ -335,6 +375,10 @@ class RecommendationEngine:
 
     def _refresh_collection(self, collection_name: str, recs: List[Recommendation]):
         items: List[tuple[Recommendation, object]] = []
+        COLLECTION_LOGGER.info(
+            "Refreshing Plex collection",
+            extra={"collection": collection_name, "requested_items": len(recs)},
+        )
         for rec in recs:
             item = self.plex.fetch_item(
                 rec.rating_key,
@@ -347,14 +391,32 @@ class RecommendationEngine:
             )
             if item:
                 items.append((rec, item))
+                COLLECTION_LOGGER.debug(
+                    "Fetched Plex item for collection",
+                    extra={
+                        "collection": collection_name,
+                        "rating_key": rec.rating_key,
+                        "title": rec.title,
+                    },
+                )
         try:
             # ``recs`` have already been ordered according to the configured collection
             # preference via ``_order_recommendations``. Preserve that sequence so the
             # Plex collection mirrors the order shown in the UI.
             ordered_items = [item for _, item in items]
+            COLLECTION_LOGGER.info(
+                "Applying ordered items to Plex collection",
+                extra={
+                    "collection": collection_name,
+                    "item_count": len(ordered_items),
+                },
+            )
             self.plex.set_collection_members(collection_name, ordered_items)
         except Exception:
             LOGGER.exception("Failed to refresh Plex collection", extra={"collection": collection_name})
+            COLLECTION_LOGGER.exception(
+                "Failed to refresh Plex collection", extra={"collection": collection_name}
+            )
 
     def build_movie_collection(self, limit: int = 10, days: int = 30) -> List[Recommendation]:
         recent_movies = list(self.plex.recently_watched_movies(days=days, max_results=200))

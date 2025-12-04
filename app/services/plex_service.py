@@ -523,6 +523,23 @@ class PlexService:
         collection = self.ensure_collection(collection_name, section, items=items)
         self._set_collection_custom_sort(collection, collection_name)
 
+        ordered_metadata = [
+            {
+                "position": index,
+                "title": getattr(item, "title", None),
+                "rating_key": getattr(item, "ratingKey", None),
+            }
+            for index, item in enumerate(items, start=1)
+        ]
+        COLLECTION_LOGGER.info(
+            "Prepared ordered Plex collection items",
+            extra={
+                "collection": collection_name,
+                "item_count": len(ordered_metadata),
+                "items": ordered_metadata,
+            },
+        )
+
         try:
             existing_items = list(collection.items())
             COLLECTION_LOGGER.debug(

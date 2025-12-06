@@ -199,17 +199,33 @@
             margin-top: 12px;
         }
 
-        .poster-card {
-            text-align: center;
+        .media-card {
             position: relative;
             background: #fafafa;
             border: 1px solid #e5e5e5;
             border-radius: 2px;
             box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
             padding: 6px;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            hyphens: auto;
+            max-width: 100%;
         }
 
-        .poster-card .remove-entry {
+        .media-card p,
+        .media-card strong,
+        .media-card small {
+            overflow-wrap: inherit;
+            word-break: inherit;
+            hyphens: inherit;
+            max-width: inherit;
+        }
+
+        .poster-card {
+            text-align: center;
+        }
+
+        .media-card .remove-entry {
             position: absolute;
             top: 6px;
             right: 6px;
@@ -231,8 +247,8 @@
             transition: opacity 120ms ease;
         }
 
-        .poster-card:hover .remove-entry,
-        .poster-card:focus-within .remove-entry {
+        .media-card:hover .remove-entry,
+        .media-card:focus-within .remove-entry {
             opacity: 1;
         }
 
@@ -244,6 +260,23 @@
 
         .poster-card p {
             margin: 8px 0 6px;
+            font-size: 0.9rem;
+        }
+
+        .standard-card {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            text-align: left;
+            padding: 12px;
+        }
+
+        .standard-card .card-title {
+            font-weight: 700;
+        }
+
+        .standard-card .card-meta {
+            color: #5f6368;
             font-size: 0.9rem;
         }
 
@@ -802,18 +835,30 @@
         }
         items.forEach((item) => {
             const article = document.createElement('article');
-            article.className = 'poster-card';
+            const hasPoster = Boolean(item.poster);
+            article.className = `media-card ${hasPoster ? 'poster-card' : 'standard-card'}`;
             const removeButton = createRemoveButton(() => article.remove());
             article.appendChild(removeButton);
-            if (item.poster) {
+            if (hasPoster) {
                 const img = document.createElement('img');
                 img.src = item.poster;
                 img.alt = `${item.title} poster`;
                 article.appendChild(img);
             }
-            const text = document.createElement('p');
-            text.innerHTML = `<strong>${item.title}</strong><br><small>Score: ${item.score?.toFixed?.(2) ?? item.score ?? 'N/A'}</small>`;
-            article.appendChild(text);
+            if (hasPoster) {
+                const text = document.createElement('p');
+                text.innerHTML = `<strong>${item.title}</strong><br><small>Score: ${item.score?.toFixed?.(2) ?? item.score ?? 'N/A'}</small>`;
+                article.appendChild(text);
+            } else {
+                const title = document.createElement('p');
+                title.className = 'card-title';
+                title.textContent = item.title;
+                const meta = document.createElement('p');
+                meta.className = 'card-meta';
+                meta.textContent = `Score: ${item.score?.toFixed?.(2) ?? item.score ?? 'N/A'}`;
+                article.appendChild(title);
+                article.appendChild(meta);
+            }
             const tooltip = document.createElement('div');
             tooltip.className = 'poster-tooltip';
 
@@ -891,18 +936,30 @@
         statusEl.textContent = '';
         items.forEach((item) => {
             const article = document.createElement('article');
-            article.className = 'poster-card';
+            const hasPoster = Boolean(item.poster);
+            article.className = `media-card ${hasPoster ? 'poster-card' : 'standard-card'}`;
             const removeButton = createRemoveButton(() => article.remove());
             article.appendChild(removeButton);
-            if (item.poster) {
+            if (hasPoster) {
                 const img = document.createElement('img');
                 img.src = item.poster;
                 img.alt = `${item.title} poster`;
                 article.appendChild(img);
             }
-            const text = document.createElement('p');
-            text.innerHTML = `<strong>${item.title}</strong><br><small>${item.year ? `${item.year} · ` : ''}${item.library || 'Plex'}</small>`;
-            article.appendChild(text);
+            if (hasPoster) {
+                const text = document.createElement('p');
+                text.innerHTML = `<strong>${item.title}</strong><br><small>${item.year ? `${item.year} · ` : ''}${item.library || 'Plex'}</small>`;
+                article.appendChild(text);
+            } else {
+                const title = document.createElement('p');
+                title.className = 'card-title';
+                title.textContent = item.title;
+                const meta = document.createElement('p');
+                meta.className = 'card-meta';
+                meta.textContent = `${item.year ? `${item.year} · ` : ''}${item.library || 'Plex'}`;
+                article.appendChild(title);
+                article.appendChild(meta);
+            }
             container.appendChild(article);
         });
     }

@@ -359,14 +359,9 @@ class PlexIndex:
         if raw_scores.size == 0:
             return {}
 
-        min_score = raw_scores.min()
-        max_score = raw_scores.max()
-        if math.isclose(max_score, min_score):
-            normalized_scores = np.ones_like(raw_scores)
-        else:
-            normalized_scores = (raw_scores - min_score) / (max_score - min_score)
+        clipped_scores = np.clip(raw_scores, -1.0, 1.0)
 
-        return {key: float(score) for key, score in zip(keys, normalized_scores)}
+        return {key: float(score) for key, score in zip(keys, clipped_scores)}
 
     def related_profiles(
         self, source: PlexProfile, limit: Optional[int] = None

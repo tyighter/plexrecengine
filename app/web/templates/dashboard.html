@@ -193,8 +193,9 @@
         }
 
         .poster-grid {
+            --poster-card-min: 10rem;
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(var(--poster-card-min), 1fr));
             gap: 1rem;
             margin-top: 12px;
         }
@@ -284,8 +285,8 @@
             position: absolute;
             left: 50%;
             bottom: 100%;
-            max-width: 320px;
-            min-width: 260px;
+            max-width: 20rem;
+            min-width: 16rem;
             padding: 0.6rem 0.9rem;
             background: #fffef7;
             color: #202124;

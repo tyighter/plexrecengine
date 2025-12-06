@@ -2,7 +2,8 @@ import unittest
 
 import numpy as np
 
-from app.services.plex_index import PlexIndex, PlexProfile
+from app.config import settings
+from app.services.plex_index import PlexIndex, PlexProfile, profile_similarity
 
 
 class PlotSimilarityScoresTests(unittest.TestCase):
@@ -59,6 +60,45 @@ class PlotSimilarityScoresTests(unittest.TestCase):
         self.assertAlmostEqual(scores[close_match.rating_key], expected_close_score, places=6)
         self.assertAlmostEqual(scores[far_match.rating_key], -1.0, places=6)
         self.assertGreater(scores[close_match.rating_key] - scores[far_match.rating_key], 1.5)
+
+
+class QualityWeightingTests(unittest.TestCase):
+    def setUp(self):
+        self._original_quality_weight = settings.quality_weight
+        settings.quality_weight = 10.0
+
+    def tearDown(self):
+        settings.quality_weight = self._original_quality_weight
+
+    def test_higher_rated_candidates_rank_first(self):
+        source = PlexProfile(
+            rating_key=1,
+            title="Source",
+            media_type="movie",
+            summary="source",
+        )
+
+        high_quality = PlexProfile(
+            rating_key=2,
+            title="High",
+            media_type="movie",
+            summary="high",
+            tmdb_rating=90.0,
+        )
+
+        low_quality = PlexProfile(
+            rating_key=3,
+            title="Low",
+            media_type="movie",
+            summary="low",
+            tmdb_rating=60.0,
+        )
+
+        high_score, high_breakdown = profile_similarity(source, high_quality, plot_score=0.0)
+        low_score, low_breakdown = profile_similarity(source, low_quality, plot_score=0.0)
+
+        self.assertGreater(high_breakdown.get("quality", 0.0), low_breakdown.get("quality", 0.0))
+        self.assertGreater(high_score, low_score)
 
 
 if __name__ == "__main__":

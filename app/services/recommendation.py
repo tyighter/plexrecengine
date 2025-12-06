@@ -190,6 +190,18 @@ class RecommendationEngine:
             if shared_traits:
                 reason_parts.append("Common threads: " + "; ".join(shared_traits))
 
+            quality_component = breakdown.get("quality", 0.0) if breakdown else 0.0
+            if quality_component:
+                rating_descriptions: list[str] = []
+                if profile.tmdb_rating is not None:
+                    rating_descriptions.append(f"TMDB {profile.tmdb_rating:.1f}/100")
+                if profile.letterboxd_rating is not None:
+                    rating_descriptions.append(f"Letterboxd {profile.letterboxd_rating:.1f}/5")
+                rating_text = "; ".join(rating_descriptions) if rating_descriptions else "external ratings"
+                reason_parts.append(
+                    f"Quality boost ({rating_text}): {quality_component:+.2f}"
+                )
+
             reason_parts.append(f"Similarity score: {score:.2f}")
             recommendations.append(
                 Recommendation(

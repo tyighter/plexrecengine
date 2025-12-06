@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     genre_weight: float = 15.0
     plot_weight: float = 25.0
     year_weight: float = 10.0
+    quality_weight: float = 0.0
     recency_max_bonus: float = 8.0
     recency_half_life_days: float = 45.0
     year_half_life: float = 10.0

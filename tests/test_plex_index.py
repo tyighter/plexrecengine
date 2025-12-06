@@ -62,6 +62,100 @@ class PlotSimilarityScoresTests(unittest.TestCase):
         self.assertGreater(scores[close_match.rating_key] - scores[far_match.rating_key], 1.5)
 
 
+class SimilarityFieldWeightingTests(unittest.TestCase):
+    def setUp(self):
+        self._original_weights = {
+            "studio": settings.studio_weight,
+            "collection": settings.collection_weight,
+            "country": settings.country_weight,
+            "cast": settings.cast_weight,
+            "director": settings.director_weight,
+            "writer": settings.writer_weight,
+            "genre": settings.genre_weight,
+            "year": settings.year_weight,
+        }
+        settings.studio_weight = 10.0
+        settings.collection_weight = 8.0
+        settings.country_weight = 5.0
+        settings.cast_weight = 0.0
+        settings.director_weight = 0.0
+        settings.writer_weight = 0.0
+        settings.genre_weight = 0.0
+        settings.year_weight = 0.0
+
+    def tearDown(self):
+        settings.studio_weight = self._original_weights["studio"]
+        settings.collection_weight = self._original_weights["collection"]
+        settings.country_weight = self._original_weights["country"]
+        settings.cast_weight = self._original_weights["cast"]
+        settings.director_weight = self._original_weights["director"]
+        settings.writer_weight = self._original_weights["writer"]
+        settings.genre_weight = self._original_weights["genre"]
+        settings.year_weight = self._original_weights["year"]
+
+    def test_collection_overlap_increases_similarity(self):
+        source = PlexProfile(
+            rating_key=1,
+            title="Source",
+            media_type="movie",
+            summary="source",
+            collections={"Franchise"},
+        )
+
+        related = PlexProfile(
+            rating_key=2,
+            title="Related",
+            media_type="movie",
+            summary="related",
+            collections={"Franchise"},
+        )
+
+        unrelated = PlexProfile(
+            rating_key=3,
+            title="Unrelated",
+            media_type="movie",
+            summary="unrelated",
+            collections=set(),
+        )
+
+        related_score, _ = profile_similarity(source, related, plot_score=0.0)
+        unrelated_score, _ = profile_similarity(source, unrelated, plot_score=0.0)
+
+        self.assertGreater(related_score, unrelated_score)
+
+    def test_studio_overlap_increases_similarity(self):
+        source = PlexProfile(
+            rating_key=10,
+            title="Source",
+            media_type="tv",
+            summary="source",
+            studios={"Network"},
+            countries={"USA"},
+        )
+
+        same_studio = PlexProfile(
+            rating_key=11,
+            title="Same Studio",
+            media_type="tv",
+            summary="same",
+            studios={"Network"},
+            countries={"USA"},
+        )
+
+        different_studio = PlexProfile(
+            rating_key=12,
+            title="Different Studio",
+            media_type="tv",
+            summary="different",
+            studios={"Other"},
+            countries={"USA"},
+        )
+
+        same_score, _ = profile_similarity(source, same_studio, plot_score=0.0)
+        different_score, _ = profile_similarity(source, different_studio, plot_score=0.0)
+
+        self.assertGreater(same_score, different_score)
+
 class QualityWeightingTests(unittest.TestCase):
     def setUp(self):
         self._original_quality_weight = settings.quality_weight

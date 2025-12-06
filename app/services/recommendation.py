@@ -161,6 +161,9 @@ class RecommendationEngine:
                 "writers": sorted(source_profile.writers & profile.writers),
                 "cast": sorted(source_profile.cast & profile.cast),
                 "genres": sorted(source_profile.genres & profile.genres),
+                "collections": sorted(source_profile.collections & profile.collections),
+                "studios": sorted(source_profile.studios & profile.studios),
+                "countries": sorted(source_profile.countries & profile.countries),
             }
 
             def describe(values: list[str], label: str) -> str:
@@ -185,6 +188,9 @@ class RecommendationEngine:
                 describe(overlap["cast"], "features"),
                 describe(overlap["writers"], "writer"),
                 describe(overlap["genres"], "genre"),
+                describe(overlap["collections"], "part of"),
+                describe(overlap["studios"], "from studio/network"),
+                describe(overlap["countries"], "originating in"),
             ]
             shared_traits = [part for part in shared_traits if part]
             if shared_traits:

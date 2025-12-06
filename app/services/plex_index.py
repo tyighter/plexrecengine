@@ -67,6 +67,9 @@ class PlexProfile:
     directors: Set[str] = field(default_factory=set)
     writers: Set[str] = field(default_factory=set)
     genres: Set[str] = field(default_factory=set)
+    studios: Set[str] = field(default_factory=set)
+    collections: Set[str] = field(default_factory=set)
+    countries: Set[str] = field(default_factory=set)
     summary: str = ""
     year: Optional[int] = None
     added_at: Optional[datetime] = None
@@ -187,6 +190,12 @@ class PlexIndex:
         cast_sources = getattr(item, "actors", None) or getattr(item, "roles", None) or []
         cast = _extract_names(cast_sources)
         genres = _extract_names(getattr(item, "genres", []) or [])
+        studios = _extract_names(getattr(item, "studios", []) or [])
+        studio_name = getattr(item, "studio", None) or getattr(item, "network", None)
+        if studio_name:
+            studios.add(str(studio_name))
+        collections = _extract_names(getattr(item, "collections", []) or [])
+        countries = _extract_names(getattr(item, "countries", []) or [])
 
         summary = _normalize_summary(getattr(item, "summary", ""))
         year = getattr(item, "year", None)
@@ -204,6 +213,9 @@ class PlexIndex:
             directors=directors,
             writers=writers,
             genres=genres,
+            studios=studios,
+            collections=collections,
+            countries=countries,
             summary=summary,
             year=year,
             added_at=added_at,
@@ -547,6 +559,9 @@ def profile_similarity(source: PlexProfile, target: PlexProfile, plot_score: flo
     director_similarity = _overlap_ratio(source.directors, target.directors)
     writer_similarity = _overlap_ratio(source.writers, target.writers)
     genre_similarity = _overlap_ratio(source.genres, target.genres)
+    studio_similarity = _overlap_ratio(source.studios, target.studios)
+    collection_similarity = _overlap_ratio(source.collections, target.collections)
+    country_similarity = _overlap_ratio(source.countries, target.countries)
     year_similarity = _year_similarity(source.year, target.year)
     recency = _recency_bonus(target)
     quality = _quality_score(target)
@@ -556,6 +571,9 @@ def profile_similarity(source: PlexProfile, target: PlexProfile, plot_score: flo
         "directors": director_similarity * settings.director_weight,
         "writers": writer_similarity * settings.writer_weight,
         "genres": genre_similarity * settings.genre_weight,
+        "studios": studio_similarity * settings.studio_weight,
+        "collections": collection_similarity * settings.collection_weight,
+        "countries": country_similarity * settings.country_weight,
         "plot": plot_score * settings.plot_weight,
         "year": year_similarity * settings.year_weight,
         "recency": recency,

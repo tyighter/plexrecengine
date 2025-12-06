@@ -133,3 +133,30 @@ def test_infers_absolute_index_from_show_episodes():
     assert number == 3
     assert ordinal == "3rd"
 
+
+def test_defaults_to_position_when_episode_indexes_missing():
+    target = _FakeEpisode(rating_key=None, season=None, number=None)
+    episodes = [
+        _FakeEpisode(rating_key=101, season=1, number=1),
+        _FakeEpisode(rating_key=102, season=1, number=2),
+        target,
+        _FakeEpisode(rating_key=201, season=2, number=1),
+    ]
+    show = _FakeShow(episodes)
+    target._show = show
+
+    number, ordinal = _service().absolute_episode_number(target)
+
+    assert number == 3
+    assert ordinal == "3rd"
+
+
+def test_falls_back_to_episode_index_when_no_show_loaded():
+    target = _FakeEpisode(rating_key=11, season=1, number=4)
+    target._show = None
+
+    number, ordinal = _service().absolute_episode_number(target)
+
+    assert number == 4
+    assert ordinal == "4th"
+

@@ -105,6 +105,12 @@ class PlexService:
                 all_episodes = []
 
             if all_episodes:
+                for position, candidate in enumerate(all_episodes, start=1):
+                    if candidate is episode:
+                        absolute_number = position
+                        break
+
+            if all_episodes and absolute_number is None:
                 parent_index = _to_int(getattr(episode, "parentIndex", None)) or 0
                 episode_index = _to_int(getattr(episode, "index", None)) or 0
 
@@ -117,6 +123,10 @@ class PlexService:
 
                 sorted_eps = sorted(all_episodes, key=_sort_key)
                 for position, candidate in enumerate(sorted_eps, start=1):
+                    if candidate is episode:
+                        absolute_number = position
+                        break
+
                     if rating_key is not None and getattr(candidate, "ratingKey", None) == rating_key:
                         absolute_number = position
                         break
@@ -126,6 +136,12 @@ class PlexService:
                     if candidate_season == parent_index and candidate_number == episode_index:
                         absolute_number = position
                         break
+
+                if absolute_number is None:
+                    absolute_number = len(sorted_eps)
+
+        if absolute_number is None:
+            absolute_number = _to_int(getattr(episode, "index", None)) or 0
 
         return absolute_number, self._ordinal(absolute_number)
 

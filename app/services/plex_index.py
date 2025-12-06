@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import pickle
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ import numpy as np
 
 from app.config import settings
 from app.services.generate_logging import get_generate_logger
+from app.services.letterboxd_client import LetterboxdClient, _tmdb_score
 from app.services.plex_service import PlexService, get_plex_service
 
 
@@ -39,6 +41,23 @@ def _normalize_summary(summary: Optional[str]) -> str:
     return (summary or "").strip()
 
 
+def _parse_tmdb_id(identifier: str) -> Optional[int]:
+    match = re.search(r"themoviedb://(\d+)", identifier) or re.search(r"tmdb(?:\.tv)?://(\d+)", identifier)
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+
+    digits = re.findall(r"\d+", identifier)
+    if digits:
+        try:
+            return int(digits[0])
+        except ValueError:
+            return None
+    return None
+
+
 @dataclass
 class PlexProfile:
     rating_key: int
@@ -53,6 +72,8 @@ class PlexProfile:
     added_at: Optional[datetime] = None
     last_viewed_at: Optional[datetime] = None
     library: Optional[str] = None
+    tmdb_rating: Optional[float] = None
+    letterboxd_rating: Optional[float] = None
 
 
 class PlexIndex:
@@ -72,6 +93,7 @@ class PlexIndex:
         self._build_started_at: float | None = None
         self._total_items: int | None = None
         self._processed_items: int = 0
+        self._tmdb_client: LetterboxdClient | None = None
 
         INDEX_DIR.mkdir(parents=True, exist_ok=True)
         self._load_from_cache()
@@ -99,6 +121,66 @@ class PlexIndex:
             normalize_embeddings=True,
         )
 
+    def _get_tmdb_client(self) -> LetterboxdClient:
+        with self._lock:
+            if self._tmdb_client is None:
+                self._tmdb_client = LetterboxdClient()
+            return self._tmdb_client
+
+    def _tmdb_id_for_item(self, item) -> Optional[int]:
+        potential_ids = []
+        for guid in getattr(item, "guids", []) or []:
+            identifier = getattr(guid, "id", None) or getattr(guid, "guid", None)
+            if identifier:
+                potential_ids.append(identifier)
+
+        for identifier in potential_ids:
+            parsed = _parse_tmdb_id(str(identifier))
+            if parsed is not None:
+                return parsed
+
+        fallback_guid = getattr(item, "guid", None)
+        if fallback_guid:
+            parsed = _parse_tmdb_id(str(fallback_guid))
+            if parsed is not None:
+                return parsed
+
+        for attr in ["tmdb_id", "tmdbId", "tmdbid"]:
+            value = getattr(item, attr, None)
+            if value is not None:
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    continue
+
+        return None
+
+    def _quality_ratings(self, item, media_type: str) -> tuple[Optional[float], Optional[float]]:
+        if settings.quality_weight <= 0 or not settings.tmdb_api_key:
+            return None, None
+
+        tmdb_id = self._tmdb_id_for_item(item)
+        client = None
+        try:
+            client = self._get_tmdb_client()
+        except Exception:
+            LOGGER.exception("Failed to initialize TMDB client for quality scoring")
+            return None, None
+
+        if tmdb_id is None:
+            tmdb_id = client.search_tmdb_id(getattr(item, "title", ""), media_type, getattr(item, "year", None))
+
+        if tmdb_id is None:
+            return None, None
+
+        try:
+            metadata = client.fetch_profile(tmdb_id, media_type)
+        except Exception:
+            LOGGER.exception("Failed to fetch TMDB profile for quality scoring", extra={"tmdb_id": tmdb_id})
+            return None, None
+
+        return metadata.tmdb_rating, metadata.letterboxd_rating
+
     def _build_profile(self, item) -> PlexProfile:
         directors = _extract_names(getattr(item, "directors", []) or [])
         writers = _extract_names(getattr(item, "writers", []) or [])
@@ -111,6 +193,8 @@ class PlexIndex:
         added_at = getattr(item, "addedAt", None)
         last_viewed_at = getattr(item, "lastViewedAt", None)
         media_type = getattr(item, "type", "movie") or "movie"
+
+        tmdb_rating, letterboxd_rating = self._quality_ratings(item, media_type)
 
         return PlexProfile(
             rating_key=int(getattr(item, "ratingKey", 0)),
@@ -125,6 +209,8 @@ class PlexIndex:
             added_at=added_at,
             last_viewed_at=last_viewed_at,
             library=getattr(item, "librarySectionTitle", None),
+            tmdb_rating=tmdb_rating,
+            letterboxd_rating=letterboxd_rating,
         )
 
     def _rebuild_text_matrix(self) -> None:
@@ -446,6 +532,16 @@ def _recency_bonus(profile: PlexProfile) -> float:
     return settings.recency_max_bonus * decay
 
 
+def _quality_score(profile: PlexProfile) -> float:
+    rating_value: Optional[float] = profile.tmdb_rating
+    if rating_value is None and profile.letterboxd_rating is not None:
+        rating_value = profile.letterboxd_rating * 20.0
+
+    base_score = _tmdb_score(rating_value) if rating_value is not None else 0.0
+    normalized = base_score / 50.0
+    return settings.quality_weight * normalized
+
+
 def profile_similarity(source: PlexProfile, target: PlexProfile, plot_score: float = 0.0) -> Tuple[float, dict[str, float]]:
     cast_similarity = _overlap_ratio(source.cast, target.cast)
     director_similarity = _overlap_ratio(source.directors, target.directors)
@@ -453,6 +549,7 @@ def profile_similarity(source: PlexProfile, target: PlexProfile, plot_score: flo
     genre_similarity = _overlap_ratio(source.genres, target.genres)
     year_similarity = _year_similarity(source.year, target.year)
     recency = _recency_bonus(target)
+    quality = _quality_score(target)
 
     breakdown = {
         "cast": cast_similarity * settings.cast_weight,
@@ -462,6 +559,7 @@ def profile_similarity(source: PlexProfile, target: PlexProfile, plot_score: flo
         "plot": plot_score * settings.plot_weight,
         "year": year_similarity * settings.year_weight,
         "recency": recency,
+        "quality": quality,
     }
 
     total = round(sum(breakdown.values()), 2)

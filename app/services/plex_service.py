@@ -43,6 +43,92 @@ class PlexService:
             },
         )
 
+    @staticmethod
+    def _ordinal(value: Optional[int]) -> Optional[str]:
+        if value is None:
+            return None
+
+        abs_value = abs(value)
+        last_two = abs_value % 100
+        if 10 <= last_two <= 20:
+            suffix = "th"
+        else:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(abs_value % 10, "th")
+
+        return f"{value}{suffix}"
+
+    def absolute_episode_number(self, episode) -> tuple[Optional[int], Optional[str]]:
+        """Infer an episode's absolute number and ordinal label.
+
+        Plex exposes an ``absoluteIndex`` for shows that use absolute numbering,
+        but it is often missing. When it is unavailable, we derive the absolute
+        position by sorting every episode in the series by season and episode
+        number.
+        """
+
+        def _to_int(value) -> Optional[int]:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        rating_key = getattr(episode, "ratingKey", None)
+        absolute_number = _to_int(getattr(episode, "absoluteIndex", None))
+        if absolute_number is None:
+            absolute_number = _to_int(getattr(episode, "absolute_number", None))
+
+        if absolute_number is None:
+            show = None
+            show_attr = getattr(episode, "show", None)
+            if callable(show_attr):
+                try:
+                    show = show_attr()
+                except Exception:  # noqa: BLE001
+                    LOGGER.exception(
+                        "Failed to load parent show for absolute episode number",
+                        extra={"rating_key": rating_key},
+                    )
+            if show is None:
+                show = getattr(episode, "grandparent", None)
+
+            episodes_fn = getattr(show, "episodes", None)
+            if callable(episodes_fn):
+                try:
+                    all_episodes = list(episodes_fn())
+                except Exception:  # noqa: BLE001
+                    LOGGER.exception(
+                        "Failed to load episodes for absolute numbering",
+                        extra={"rating_key": rating_key},
+                    )
+                    all_episodes = []
+            else:
+                all_episodes = []
+
+            if all_episodes:
+                parent_index = _to_int(getattr(episode, "parentIndex", None)) or 0
+                episode_index = _to_int(getattr(episode, "index", None)) or 0
+
+                def _sort_key(ep) -> tuple[int, int, int]:
+                    return (
+                        _to_int(getattr(ep, "parentIndex", None)) or 0,
+                        _to_int(getattr(ep, "index", None)) or 0,
+                        _to_int(getattr(ep, "absoluteIndex", None)) or 0,
+                    )
+
+                sorted_eps = sorted(all_episodes, key=_sort_key)
+                for position, candidate in enumerate(sorted_eps, start=1):
+                    if rating_key is not None and getattr(candidate, "ratingKey", None) == rating_key:
+                        absolute_number = position
+                        break
+
+                    candidate_season = _to_int(getattr(candidate, "parentIndex", None)) or 0
+                    candidate_number = _to_int(getattr(candidate, "index", None)) or 0
+                    if candidate_season == parent_index and candidate_number == episode_index:
+                        absolute_number = position
+                        break
+
+        return absolute_number, self._ordinal(absolute_number)
+
     def _history_kwargs(
         self, section, cutoff: datetime, limit: int, include_account_filter: bool = True
     ):

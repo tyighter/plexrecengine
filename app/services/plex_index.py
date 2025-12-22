@@ -340,11 +340,6 @@ class PlexIndex:
             processed_keys = set(profiles.keys())
             self._processed_items = len(profiles)
 
-            movie_items = list(self.plex.iter_library_items("movie"))
-            show_items = list(self.plex.iter_library_items("show"))
-            total_items = len(movie_items) + len(show_items)
-            self._total_items = total_items or self._total_items
-
             def _process_item(item):
                 profile = self._build_profile(item)
                 profiles[profile.rating_key] = profile
@@ -353,7 +348,11 @@ class PlexIndex:
                         latest.get(profile.media_type, profile.added_at), profile.added_at
                     )
 
-            for item in movie_items + show_items:
+            total_items = self._processed_items
+
+            for item in self.plex.iter_library_items("movie"):
+                total_items += 1
+                self._total_items = total_items
                 rating_key = getattr(item, "ratingKey", None)
                 if rating_key is not None and rating_key in processed_keys:
                     continue
@@ -361,6 +360,19 @@ class PlexIndex:
                 self._processed_items += 1
                 if self._processed_items % 50 == 0:
                     self._serialize_checkpoint(profiles, latest)
+
+            for item in self.plex.iter_library_items("show"):
+                total_items += 1
+                self._total_items = total_items
+                rating_key = getattr(item, "ratingKey", None)
+                if rating_key is not None and rating_key in processed_keys:
+                    continue
+                _process_item(item)
+                self._processed_items += 1
+                if self._processed_items % 50 == 0:
+                    self._serialize_checkpoint(profiles, latest)
+
+            self._total_items = total_items or self._total_items
             self._serialize_checkpoint(profiles, latest)
 
             with self._lock:

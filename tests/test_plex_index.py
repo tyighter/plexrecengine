@@ -72,6 +72,8 @@ class SimilarityFieldWeightingTests(unittest.TestCase):
             "director": settings.director_weight,
             "writer": settings.writer_weight,
             "genre": settings.genre_weight,
+            "keyword": settings.keyword_weight,
+            "letterboxd_keyword": settings.letterboxd_keyword_weight,
             "year": settings.year_weight,
         }
         settings.studio_weight = 10.0
@@ -81,6 +83,8 @@ class SimilarityFieldWeightingTests(unittest.TestCase):
         settings.director_weight = 0.0
         settings.writer_weight = 0.0
         settings.genre_weight = 0.0
+        settings.keyword_weight = 0.0
+        settings.letterboxd_keyword_weight = 0.0
         settings.year_weight = 0.0
 
     def tearDown(self):
@@ -91,6 +95,8 @@ class SimilarityFieldWeightingTests(unittest.TestCase):
         settings.director_weight = self._original_weights["director"]
         settings.writer_weight = self._original_weights["writer"]
         settings.genre_weight = self._original_weights["genre"]
+        settings.keyword_weight = self._original_weights["keyword"]
+        settings.letterboxd_keyword_weight = self._original_weights["letterboxd_keyword"]
         settings.year_weight = self._original_weights["year"]
 
     def test_collection_overlap_increases_similarity(self):

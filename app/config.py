@@ -87,6 +87,8 @@ class Settings(BaseSettings):
     country_weight: float = 5.0
     plot_weight: float = 25.0
     year_weight: float = 10.0
+    standup_only_matching: bool = False
+    standup_keywords: List[str] = []
     quality_weight: float = 0.0
     recency_max_bonus: float = 8.0
     recency_half_life_days: float = 45.0
@@ -103,6 +105,13 @@ class Settings(BaseSettings):
     def split_library_names(cls, value):
         if isinstance(value, str):
             return [name.strip() for name in value.split(",") if name.strip()]
+        return value
+
+    @field_validator("standup_keywords", mode="before")
+    @classmethod
+    def split_standup_keywords(cls, value):
+        if isinstance(value, str):
+            return [keyword.strip() for keyword in value.split(",") if keyword.strip()]
         return value
 
     @field_validator("recents_window_days", "recommendations_per_recent")

@@ -25,6 +25,19 @@ INDEX_DIR = Path("/app/index")
 INDEX_PATH = INDEX_DIR / "plex_index.pkl"
 CHECKPOINT_PATH = INDEX_DIR / "plex_index.checkpoint.pkl"
 PROGRESS_PATH = INDEX_DIR / "plex_index.progress.json"
+DEFAULT_STANDUP_CUES = {
+    "standup",
+    "stand up",
+    "stand-up",
+    "standup comedy",
+    "stand up comedy",
+    "stand-up comedy",
+    "standup special",
+    "stand up special",
+    "stand-up special",
+    "standup comic",
+    "stand-up comic",
+}
 
 
 def _extract_names(entries: Iterable) -> Set[str]:
@@ -58,6 +71,27 @@ def _parse_tmdb_id(identifier: str) -> Optional[int]:
     return None
 
 
+def _normalize_label(label: str) -> str:
+    return re.sub(r"[\s\-]+", " ", label).strip().lower()
+
+
+def _is_standup_title(genres: Iterable[str], keywords: Iterable[str], letterboxd_keywords: Iterable[str], collections: Iterable[str]) -> bool:
+    cues = {_normalize_label(keyword) for keyword in settings.standup_keywords}
+    cues.update(DEFAULT_STANDUP_CUES)
+
+    def _matches(values: Iterable[str]) -> bool:
+        for value in values or []:
+            normalized = _normalize_label(str(value))
+            if not normalized:
+                continue
+            for cue in cues:
+                if cue and (normalized == cue or cue in normalized):
+                    return True
+        return False
+
+    return _matches(genres) or _matches(keywords) or _matches(letterboxd_keywords) or _matches(collections)
+
+
 @dataclass
 class PlexProfile:
     rating_key: int
@@ -80,6 +114,7 @@ class PlexProfile:
     tmdb_id: Optional[int] = None
     tmdb_rating: Optional[float] = None
     letterboxd_rating: Optional[float] = None
+    is_standup: bool = False
 
 
 class PlexIndex:
@@ -219,6 +254,7 @@ class PlexIndex:
         keywords = set(metadata.keywords) if metadata else set()
         letterboxd_keywords = set(metadata.letterboxd_keywords) if metadata else set()
         tmdb_id = metadata.tmdb_id if metadata else self._tmdb_id_for_item(item)
+        is_standup = _is_standup_title(genres, keywords, letterboxd_keywords, collections)
 
         return PlexProfile(
             rating_key=int(getattr(item, "ratingKey", 0)),
@@ -241,6 +277,7 @@ class PlexIndex:
             tmdb_id=tmdb_id,
             tmdb_rating=tmdb_rating,
             letterboxd_rating=letterboxd_rating,
+            is_standup=is_standup,
         )
 
     def _rebuild_text_matrix(self) -> None:
@@ -300,6 +337,20 @@ class PlexIndex:
             profile.last_viewed_at = None
         if not hasattr(profile, "library"):
             profile.library = None
+        existing_flag = getattr(profile, "is_standup", False)
+        try:
+            profile.is_standup = bool(
+                existing_flag
+                or _is_standup_title(
+                    getattr(profile, "genres", set()),
+                    getattr(profile, "keywords", set()),
+                    getattr(profile, "letterboxd_keywords", set()),
+                    getattr(profile, "collections", set()),
+                )
+            )
+        except Exception:
+            LOGGER.exception("Failed to evaluate stand-up label for profile", extra={"rating_key": getattr(profile, "rating_key", None)})
+            profile.is_standup = bool(existing_flag)
         return profile
 
     def _update_latest_added(self, profile: PlexProfile) -> None:

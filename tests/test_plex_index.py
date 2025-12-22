@@ -62,6 +62,56 @@ class PlotSimilarityScoresTests(unittest.TestCase):
         self.assertGreater(scores[close_match.rating_key] - scores[far_match.rating_key], 1.5)
 
 
+class StandupDetectionTests(unittest.TestCase):
+    def setUp(self):
+        self.index = PlexIndex(None)
+        self.original_keywords = list(settings.standup_keywords)
+        settings.standup_keywords = []
+
+    def tearDown(self):
+        settings.standup_keywords = self.original_keywords
+
+    def _build_item(self, *, genres=None, collections=None, keywords=None, letterboxd_keywords=None, rating_key=10):
+        class Entry:
+            def __init__(self, value):
+                self.tag = value
+
+        class FakeItem:
+            def __init__(self):
+                self.ratingKey = rating_key
+                self.title = "Test"
+                self.type = "movie"
+                self.summary = "A comedy special"
+                self.genres = [Entry(value) for value in (genres or [])]
+                self.collections = [Entry(value) for value in (collections or [])]
+                self.keywords = [Entry(value) for value in (keywords or [])]
+                self.letterboxd_keywords = [Entry(value) for value in (letterboxd_keywords or [])]
+
+        return FakeItem()
+
+    def test_standup_flag_from_genre(self):
+        item = self._build_item(genres=["Stand-Up Comedy"])
+        profile = self.index._build_profile(item)
+        self.assertTrue(profile.is_standup)
+
+    def test_standup_flag_from_custom_keywords(self):
+        settings.standup_keywords = ["Comedy Special"]
+        item = self._build_item(collections=["Comedy Special"])
+        profile = self.index._build_profile(item)
+        self.assertTrue(profile.is_standup)
+
+    def test_standup_flag_preserved_on_ensure_defaults(self):
+        profile = PlexProfile(
+            rating_key=42,
+            title="Legacy",
+            media_type="movie",
+            genres={"Stand Up Comedy"},
+        )
+        delattr(profile, "is_standup")
+        ensured = PlexIndex._ensure_profile_defaults(profile)
+        self.assertTrue(ensured.is_standup)
+
+
 class SimilarityFieldWeightingTests(unittest.TestCase):
     def setUp(self):
         self._original_weights = {

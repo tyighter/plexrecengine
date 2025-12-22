@@ -78,6 +78,20 @@ class RecommendationEngine:
             limit=None if related_pool_limit == 0 else related_pool_limit,
         )
 
+        if settings.standup_only_matching:
+            if source_profile.is_standup:
+                related = [profile for profile in related if profile.is_standup]
+                SCORING_LOGGER.info(
+                    "Stand-up filtering enabled; restricted related pool to stand-up titles",
+                    extra={"remaining": len(related)},
+                )
+            else:
+                related = [profile for profile in related if not profile.is_standup]
+                SCORING_LOGGER.info(
+                    "Stand-up filtering enabled; excluding stand-up specials for non-stand-up source",
+                    extra={"remaining": len(related)},
+                )
+
         if not related:
             SCORING_LOGGER.info(
                 "No related Plex titles found for %s; skipping recommendations",

@@ -122,6 +122,8 @@ class RecommendationConfig(BaseModel):
     collectionOrder: str | None = None
     recentsWindowDays: int | None = None
     recommendationsPerRecent: int | None = None
+    standupOnlyMatching: bool | None = None
+    standupKeywords: list[str] | None = None
 
 
 def _serialize_recent(item, poster_url):
@@ -581,6 +583,8 @@ async def set_recommendation_config(payload: RecommendationConfig):
         and payload.collectionOrder is None
         and payload.recentsWindowDays is None
         and payload.recommendationsPerRecent is None
+        and payload.standupOnlyMatching is None
+        and payload.standupKeywords is None
     ):
         raise HTTPException(
             status_code=400,
@@ -639,6 +643,23 @@ async def set_recommendation_config(payload: RecommendationConfig):
         save_config({"RECOMMENDATIONS_PER_RECENT": payload.recommendationsPerRecent})
         settings.recommendations_per_recent = payload.recommendationsPerRecent
 
+    if payload.standupOnlyMatching is not None:
+        ENV_PATH.touch(exist_ok=True)
+        set_key(
+            str(ENV_PATH),
+            "STANDUP_ONLY_MATCHING",
+            "true" if payload.standupOnlyMatching else "false",
+        )
+        save_config({"STANDUP_ONLY_MATCHING": payload.standupOnlyMatching})
+        settings.standup_only_matching = payload.standupOnlyMatching
+
+    if payload.standupKeywords is not None:
+        ENV_PATH.touch(exist_ok=True)
+        keywords = [keyword.strip() for keyword in payload.standupKeywords if keyword.strip()]
+        set_key(str(ENV_PATH), "STANDUP_KEYWORDS", ",".join(keywords))
+        save_config({"STANDUP_KEYWORDS": keywords})
+        settings.standup_keywords = keywords
+
     return {
         "status": "ok",
         "related_pool_limit": settings.related_pool_limit,
@@ -646,6 +667,8 @@ async def set_recommendation_config(payload: RecommendationConfig):
         "collection_order": settings.collection_order,
         "recents_window_days": settings.recents_window_days,
         "recommendations_per_recent": settings.recommendations_per_recent,
+        "standup_only_matching": settings.standup_only_matching,
+        "standup_keywords": settings.standup_keywords,
     }
 
 

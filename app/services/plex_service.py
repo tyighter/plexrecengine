@@ -14,6 +14,68 @@ from app.services.tautulli_service import get_tautulli_client
 
 LOGGER = get_plex_logger()
 COLLECTION_LOGGER = get_collections_logger()
+WATCH_PROGRESS_THRESHOLD = 0.5
+
+
+def watched_fraction(candidate) -> Optional[float]:
+    """Best-effort calculation of how much of an item was watched.
+
+    Returns a value between 0.0 and 1.0 when a percentage or duration/offset
+    can be derived, otherwise ``None`` when no progress signals are available.
+    """
+
+    def _get_field(names: Iterable[str]):
+        for name in names:
+            if isinstance(candidate, dict):
+                if name in candidate:
+                    return candidate.get(name)
+            else:
+                if hasattr(candidate, name):
+                    return getattr(candidate, name)
+        return None
+
+    percent_fields = (
+        "percent_complete",
+        "progress_percent",
+        "progress",
+        "viewed_percent",
+        "watched_percent",
+        "watched_percentage",
+    )
+    for field in percent_fields:
+        value = _get_field([field])
+        if value is None:
+            continue
+        try:
+            percent = float(value)
+        except (TypeError, ValueError):
+            continue
+        if percent > 1:
+            percent = percent / 100
+        return max(0.0, min(percent, 1.0))
+
+    duration = _get_field(["duration"])
+    view_offset = _get_field(["view_offset", "viewOffset"])
+    try:
+        if duration and view_offset is not None:
+            duration_val = float(duration)
+            offset_val = float(view_offset)
+            if duration_val > 0:
+                return max(0.0, min(offset_val / duration_val, 1.0))
+    except (TypeError, ValueError):
+        pass
+
+    view_count = _get_field(["viewCount"])
+    watched = _get_field(["watched", "watched_status"])
+    try:
+        if view_count is not None and float(view_count) > 0:
+            return 1.0
+        if watched is not None and float(watched) > 0:
+            return 1.0
+    except (TypeError, ValueError):
+        pass
+
+    return None
 
 
 class PlexService:
@@ -263,6 +325,21 @@ class PlexService:
         except Exception:
             return datetime.min
 
+    def _meets_watch_threshold(self, candidate, fallback=None) -> bool:
+        progress = watched_fraction(candidate)
+        if progress is None and fallback is not None:
+            progress = watched_fraction(fallback)
+        if progress is not None and progress < WATCH_PROGRESS_THRESHOLD:
+            LOGGER.debug(
+                "Skipping entry below watch threshold",
+                extra={
+                    "progress": progress,
+                    "threshold": WATCH_PROGRESS_THRESHOLD,
+                },
+            )
+            return False
+        return True
+
     def recently_watched_movies(self, days: int = 30, max_results: Optional[int] = None):
         cutoff = datetime.now() - timedelta(days=days)
         limit = max_results or 200
@@ -284,6 +361,8 @@ class PlexService:
                     },
                 )
                 if not movie or getattr(movie, "type", None) != "movie":
+                    continue
+                if not self._meets_watch_threshold(entry, fallback=movie):
                     continue
                 last_viewed = self._tautulli_timestamp(
                     entry.get("last_played")
@@ -317,6 +396,8 @@ class PlexService:
                 movie = getattr(entry, "item", entry)
                 entry_type = getattr(movie, "type", None) or getattr(entry, "type", None)
                 if entry_type and entry_type != "movie":
+                    continue
+                if not self._meets_watch_threshold(entry, fallback=movie):
                     continue
 
                 last_viewed = getattr(movie, "lastViewedAt", None) or getattr(entry, "viewedAt", None)
@@ -367,6 +448,8 @@ class PlexService:
                 episode = getattr(entry, "item", entry)
                 entry_type = getattr(episode, "type", None) or getattr(entry, "type", None)
                 if entry_type and entry_type != "episode":
+                    continue
+                if not self._meets_watch_threshold(entry, fallback=episode):
                     continue
 
                 last_viewed = getattr(episode, "lastViewedAt", None) or getattr(entry, "viewedAt", None)
@@ -449,6 +532,8 @@ class PlexService:
                 except Exception:
                     continue
             if getattr(item, "type", None) != "show":
+                continue
+            if not self._meets_watch_threshold(entry, fallback=item):
                 continue
             seen_show_keys.add(rating_key)
             shows_with_dates.append((item, watched_at))

@@ -266,12 +266,40 @@ class PlexIndex:
 
     @staticmethod
     def _ensure_profile_defaults(profile: PlexProfile) -> PlexProfile:
+        if not hasattr(profile, "cast") or profile.cast is None:
+            profile.cast = set()
+        if not hasattr(profile, "directors") or profile.directors is None:
+            profile.directors = set()
+        if not hasattr(profile, "writers") or profile.writers is None:
+            profile.writers = set()
+        if not hasattr(profile, "genres") or profile.genres is None:
+            profile.genres = set()
+        if not hasattr(profile, "studios") or profile.studios is None:
+            profile.studios = set()
+        if not hasattr(profile, "collections") or profile.collections is None:
+            profile.collections = set()
+        if not hasattr(profile, "countries") or profile.countries is None:
+            profile.countries = set()
         if not hasattr(profile, "keywords") or profile.keywords is None:
             profile.keywords = set()
         if not hasattr(profile, "letterboxd_keywords") or profile.letterboxd_keywords is None:
             profile.letterboxd_keywords = set()
         if not hasattr(profile, "tmdb_id"):
             profile.tmdb_id = None
+        if not hasattr(profile, "tmdb_rating"):
+            profile.tmdb_rating = None
+        if not hasattr(profile, "letterboxd_rating"):
+            profile.letterboxd_rating = None
+        if not hasattr(profile, "summary") or profile.summary is None:
+            profile.summary = ""
+        if not hasattr(profile, "year"):
+            profile.year = None
+        if not hasattr(profile, "added_at"):
+            profile.added_at = None
+        if not hasattr(profile, "last_viewed_at"):
+            profile.last_viewed_at = None
+        if not hasattr(profile, "library"):
+            profile.library = None
         return profile
 
     def _update_latest_added(self, profile: PlexProfile) -> None:

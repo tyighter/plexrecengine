@@ -541,6 +541,8 @@
             data-collection-order="{{ settings.collection_order }}"
             data-recents-window-days="{{ settings.recents_window_days }}"
             data-recommendations-per-recent="{{ settings.recommendations_per_recent }}"
+            data-standup-only-matching="{{ 'true' if settings.standup_only_matching else 'false' }}"
+            data-standup-keywords="{{ (settings.standup_keywords or []) | join(', ') }}"
         >
             <p><strong>Recommendation pool</strong></p>
             <p class="muted">Choose how many related titles to fetch before scoring. Set to 0 for unlimited.</p>
@@ -582,6 +584,23 @@
                         step="1"
                         value="{{ settings.recommendations_per_recent }}"
                     />
+                </label>
+            </div>
+            <p><strong>Stand-up matching</strong></p>
+            <p class="muted">Keep stand-up specials grouped together and optionally flag custom keywords or collections as stand-up.</p>
+            <div class="grid-two-column">
+                <label for="standup-only-matching" class="checkbox-row">
+                    <input id="standup-only-matching" name="standup-only-matching" type="checkbox" />
+                    <span>Only match stand-up sources with other stand-up titles</span>
+                </label>
+                <label for="standup-keywords">Stand-up keywords or collections
+                    <input
+                        id="standup-keywords"
+                        name="standup-keywords"
+                        type="text"
+                        placeholder="stand-up comedy, standup special"
+                    />
+                    <small class="muted">Comma-separated tags (genres, collections, keywords) that should mark an item as stand-up.</small>
                 </label>
             </div>
             <p><strong>Collection ordering</strong></p>
@@ -649,6 +668,8 @@
     const allowWatchedInput = document.getElementById('allow-watched');
     const recentsWindowInput = document.getElementById('recents-window-days');
     const recommendationsPerRecentInput = document.getElementById('recommendations-per-recent');
+    const standupOnlyMatchingInput = document.getElementById('standup-only-matching');
+    const standupKeywordsInput = document.getElementById('standup-keywords');
     const collectionOrderSelect = document.getElementById('collection-order');
     const recommendationSettingsStatus = document.getElementById('recommendation-settings-status');
     const refreshIndexButton = document.getElementById('refresh-index');
@@ -683,6 +704,17 @@
             '3';
         if (recommendationsPerRecentInput) {
             recommendationsPerRecentInput.value = recommendationsPerRecentValue;
+        }
+
+        const standupOnlyMatchingValue =
+            (recommendationConfigSection?.dataset.standupOnlyMatching ?? 'false') === 'true';
+        if (standupOnlyMatchingInput) {
+            standupOnlyMatchingInput.checked = standupOnlyMatchingValue;
+        }
+
+        const standupKeywordsValue = recommendationConfigSection?.dataset.standupKeywords || '';
+        if (standupKeywordsInput) {
+            standupKeywordsInput.value = standupKeywordsValue;
         }
 
         const collectionOrderValue =
@@ -1284,6 +1316,10 @@
             recommendationSettingsStatus.textContent = 'Enter at least 1 recommendation per recent watch.';
             return;
         }
+        const parsedStandupKeywords = (standupKeywordsInput?.value || '')
+            .split(',')
+            .map((keyword) => keyword.trim())
+            .filter(Boolean);
         const selectedOrder = collectionOrderSelect?.value || 'highest_score';
         const allowedOrders = new Set([
             'random',
@@ -1310,6 +1346,8 @@
                     collectionOrder: selectedOrder,
                     recentsWindowDays: parsedRecentsWindow,
                     recommendationsPerRecent: parsedRecommendationsPerRecent,
+                    standupOnlyMatching: standupOnlyMatchingInput?.checked ?? false,
+                    standupKeywords: parsedStandupKeywords,
                 }),
             });
             if (!response.ok) {
@@ -1322,6 +1360,8 @@
             recommendationConfigSection.dataset.collectionOrder = selectedOrder;
             recommendationConfigSection.dataset.recentsWindowDays = String(parsedRecentsWindow);
             recommendationConfigSection.dataset.recommendationsPerRecent = String(parsedRecommendationsPerRecent);
+            recommendationConfigSection.dataset.standupOnlyMatching = standupOnlyMatchingInput?.checked ? 'true' : 'false';
+            recommendationConfigSection.dataset.standupKeywords = parsedStandupKeywords.join(', ');
             syncRecommendationSettingsForm();
             recommendationSettingsStatus.textContent = 'Saved recommendation settings. Reload to apply changes.';
         } catch (err) {

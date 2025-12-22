@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     director_weight: float = 30.0
     writer_weight: float = 20.0
     genre_weight: float = 15.0
+    keyword_weight: float = 10.0
+    letterboxd_keyword_weight: float = 15.0
     studio_weight: float = 10.0
     collection_weight: float = 12.0
     country_weight: float = 5.0

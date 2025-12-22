@@ -15,7 +15,7 @@ import numpy as np
 
 from app.config import settings
 from app.services.generate_logging import get_generate_logger
-from app.services.letterboxd_client import LetterboxdClient, _tmdb_score
+from app.services.letterboxd_client import LetterboxdClient, MediaProfile, _tmdb_score
 from app.services.plex_service import PlexService, get_plex_service
 
 
@@ -67,6 +67,8 @@ class PlexProfile:
     directors: Set[str] = field(default_factory=set)
     writers: Set[str] = field(default_factory=set)
     genres: Set[str] = field(default_factory=set)
+    keywords: Set[str] = field(default_factory=set)
+    letterboxd_keywords: Set[str] = field(default_factory=set)
     studios: Set[str] = field(default_factory=set)
     collections: Set[str] = field(default_factory=set)
     countries: Set[str] = field(default_factory=set)
@@ -75,6 +77,7 @@ class PlexProfile:
     added_at: Optional[datetime] = None
     last_viewed_at: Optional[datetime] = None
     library: Optional[str] = None
+    tmdb_id: Optional[int] = None
     tmdb_rating: Optional[float] = None
     letterboxd_rating: Optional[float] = None
 
@@ -158,31 +161,38 @@ class PlexIndex:
 
         return None
 
-    def _quality_ratings(self, item, media_type: str) -> tuple[Optional[float], Optional[float]]:
-        if settings.quality_weight <= 0 or not settings.tmdb_api_key:
-            return None, None
+    def _should_fetch_media_profile(self) -> bool:
+        return bool(
+            settings.tmdb_api_key
+            and (
+                settings.quality_weight > 0
+                or settings.keyword_weight > 0
+                or settings.letterboxd_keyword_weight > 0
+            )
+        )
+
+    def _fetch_media_profile(self, item, media_type: str) -> Optional[MediaProfile]:
+        if not self._should_fetch_media_profile():
+            return None
 
         tmdb_id = self._tmdb_id_for_item(item)
-        client = None
         try:
             client = self._get_tmdb_client()
         except Exception:
             LOGGER.exception("Failed to initialize TMDB client for quality scoring")
-            return None, None
+            return None
 
         if tmdb_id is None:
             tmdb_id = client.search_tmdb_id(getattr(item, "title", ""), media_type, getattr(item, "year", None))
 
         if tmdb_id is None:
-            return None, None
+            return None
 
         try:
-            metadata = client.fetch_profile(tmdb_id, media_type)
+            return client.fetch_profile(tmdb_id, media_type)
         except Exception:
             LOGGER.exception("Failed to fetch TMDB profile for quality scoring", extra={"tmdb_id": tmdb_id})
-            return None, None
-
-        return metadata.tmdb_rating, metadata.letterboxd_rating
+            return None
 
     def _build_profile(self, item) -> PlexProfile:
         directors = _extract_names(getattr(item, "directors", []) or [])
@@ -203,7 +213,12 @@ class PlexIndex:
         last_viewed_at = getattr(item, "lastViewedAt", None)
         media_type = getattr(item, "type", "movie") or "movie"
 
-        tmdb_rating, letterboxd_rating = self._quality_ratings(item, media_type)
+        metadata = self._fetch_media_profile(item, media_type)
+        tmdb_rating = metadata.tmdb_rating if metadata else None
+        letterboxd_rating = metadata.letterboxd_rating if metadata else None
+        keywords = set(metadata.keywords) if metadata else set()
+        letterboxd_keywords = set(metadata.letterboxd_keywords) if metadata else set()
+        tmdb_id = metadata.tmdb_id if metadata else self._tmdb_id_for_item(item)
 
         return PlexProfile(
             rating_key=int(getattr(item, "ratingKey", 0)),
@@ -213,6 +228,8 @@ class PlexIndex:
             directors=directors,
             writers=writers,
             genres=genres,
+            keywords=keywords,
+            letterboxd_keywords=letterboxd_keywords,
             studios=studios,
             collections=collections,
             countries=countries,
@@ -221,6 +238,7 @@ class PlexIndex:
             added_at=added_at,
             last_viewed_at=last_viewed_at,
             library=getattr(item, "librarySectionTitle", None),
+            tmdb_id=tmdb_id,
             tmdb_rating=tmdb_rating,
             letterboxd_rating=letterboxd_rating,
         )
@@ -245,6 +263,16 @@ class PlexIndex:
             LOGGER.exception("Failed to build summary embeddings")
             self._summary_matrix = None
             self._matrix_keys = []
+
+    @staticmethod
+    def _ensure_profile_defaults(profile: PlexProfile) -> PlexProfile:
+        if not hasattr(profile, "keywords") or profile.keywords is None:
+            profile.keywords = set()
+        if not hasattr(profile, "letterboxd_keywords") or profile.letterboxd_keywords is None:
+            profile.letterboxd_keywords = set()
+        if not hasattr(profile, "tmdb_id"):
+            profile.tmdb_id = None
+        return profile
 
     def _update_latest_added(self, profile: PlexProfile) -> None:
         if not profile.added_at:
@@ -284,6 +312,7 @@ class PlexIndex:
             with CHECKPOINT_PATH.open("rb") as fp:
                 data = pickle.load(fp)
             profiles = data.get("profiles", {})
+            profiles = {key: self._ensure_profile_defaults(profile) for key, profile in profiles.items()}
             latest = data.get("latest_added", {})
             return profiles, latest
         except Exception:
@@ -310,7 +339,9 @@ class PlexIndex:
         try:
             with INDEX_PATH.open("rb") as fp:
                 data = pickle.load(fp)
-            self._profiles = data.get("profiles", {})
+            self._profiles = {
+                key: self._ensure_profile_defaults(profile) for key, profile in data.get("profiles", {}).items()
+            }
             self._latest_added = data.get("latest_added", {})
             self._summary_matrix = data.get("summary_matrix")
             self._matrix_keys = data.get("matrix_keys", [])
@@ -571,6 +602,8 @@ def profile_similarity(source: PlexProfile, target: PlexProfile, plot_score: flo
     director_similarity = _overlap_ratio(source.directors, target.directors)
     writer_similarity = _overlap_ratio(source.writers, target.writers)
     genre_similarity = _overlap_ratio(source.genres, target.genres)
+    keyword_similarity = _overlap_ratio(source.keywords, target.keywords)
+    letterboxd_keyword_similarity = _overlap_ratio(source.letterboxd_keywords, target.letterboxd_keywords)
     studio_similarity = _overlap_ratio(source.studios, target.studios)
     collection_similarity = _overlap_ratio(source.collections, target.collections)
     country_similarity = _overlap_ratio(source.countries, target.countries)
@@ -583,6 +616,8 @@ def profile_similarity(source: PlexProfile, target: PlexProfile, plot_score: flo
         "directors": director_similarity * settings.director_weight,
         "writers": writer_similarity * settings.writer_weight,
         "genres": genre_similarity * settings.genre_weight,
+        "keywords": keyword_similarity * settings.keyword_weight,
+        "letterboxd_keywords": letterboxd_keyword_similarity * settings.letterboxd_keyword_weight,
         "studios": studio_similarity * settings.studio_weight,
         "collections": collection_similarity * settings.collection_weight,
         "countries": country_similarity * settings.country_weight,

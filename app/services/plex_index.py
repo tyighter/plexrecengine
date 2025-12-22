@@ -311,6 +311,22 @@ class PlexIndex:
             with INDEX_PATH.open("rb") as fp:
                 data = pickle.load(fp)
             self._profiles = data.get("profiles", {})
+            for profile in self._profiles.values():
+                # Backfill any missing attributes for forward compatibility with older caches
+                if not hasattr(profile, "studios"):
+                    profile.studios = set()
+                if not hasattr(profile, "collections"):
+                    profile.collections = set()
+                if not hasattr(profile, "countries"):
+                    profile.countries = set()
+                # Ensure set fields are actually sets (not None)
+                profile.cast = profile.cast or set()
+                profile.directors = profile.directors or set()
+                profile.writers = profile.writers or set()
+                profile.genres = profile.genres or set()
+                profile.studios = profile.studios or set()
+                profile.collections = profile.collections or set()
+                profile.countries = profile.countries or set()
             self._latest_added = data.get("latest_added", {})
             self._summary_matrix = data.get("summary_matrix")
             self._matrix_keys = data.get("matrix_keys", [])

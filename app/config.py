@@ -98,6 +98,7 @@ class Settings(BaseSettings):
         env_prefix="",
         case_sensitive=False,
         env_parse_none_str="",
+        env_ignore_empty=True,
     )
 
     @field_validator("plex_library_names", mode="before")

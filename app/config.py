@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     tautulli_api_key: str | None = None
     tautulli_user_id: str | None = None
     tmdb_api_key: str | None = None
+    api_auth_token: str | None = None
     letterboxd_session: str | None = None
     letterboxd_allow_scrape: bool = True
     related_pool_limit: int = 0

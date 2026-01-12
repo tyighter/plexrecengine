@@ -20,6 +20,7 @@ PLEX_TOKEN=<plex-token>
 PLEX_LIBRARY_NAMES=Movies,TV Shows      # Or set PLEX_MOVIE_LIBRARY / PLEX_SHOW_LIBRARY
 PLEX_USER_ID=<optional-plex-account-id> # Filters history to a specific Plex user
 TMDB_API_KEY=<tmdb-api-key>
+API_AUTH_TOKEN=<optional-api-token>    # Require auth header for sensitive endpoints
 LETTERBOXD_SESSION=<optional-letterboxd-session-cookie>
 LETTERBOXD_ALLOW_SCRAPE=true            # Toggle Letterboxd scraping
 RELATED_POOL_LIMIT=0                    # How many related titles to consider per item (0 = unlimited)
@@ -37,6 +38,15 @@ TAUTULLI_USER_ID=<tautulli-user-id>
 ```
 
 Stand-up detection looks at Plex genres/collections plus TMDB and Letterboxd keywords. Add custom entries to `STANDUP_KEYWORDS` (comma-separated) if your library uses a specific collection or tag to mark stand-up specials. When `STANDUP_ONLY_MATCHING` is enabled, recommendations from stand-up sources will only draw from other stand-up items, and non-stand-up sources will skip stand-up specials.
+
+### API authentication
+
+Set `API_AUTH_TOKEN` (via `.env`, `/app/config/keys.yml`, or `.data/config.json`) to require an auth header for sensitive endpoints. When configured, POST/PUT/PATCH/DELETE requests to `/api/*`, `/webhook`, and `POST /api/recommendations` must include one of the following headers:
+
+- `Authorization: Bearer <token>`
+- `X-API-Key: <token>`
+
+If no token is configured, the API remains open to preserve current behavior.
 
 ### Running with Docker Compose
 

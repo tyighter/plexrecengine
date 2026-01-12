@@ -54,6 +54,19 @@ def _normalize_summary(summary: Optional[str]) -> str:
     return (summary or "").strip()
 
 
+def _format_date(value) -> Optional[str]:
+    if value is None:
+        return None
+    if hasattr(value, "strftime"):
+        try:
+            return value.strftime("%Y-%m-%d")
+        except Exception:
+            return None
+    if isinstance(value, str):
+        return value
+    return None
+
+
 def _parse_tmdb_id(identifier: str) -> Optional[int]:
     match = re.search(r"themoviedb://(\d+)", identifier) or re.search(r"tmdb(?:\.tv)?://(\d+)", identifier)
     if match:
@@ -105,6 +118,10 @@ class PlexProfile:
     letterboxd_keywords: Set[str] = field(default_factory=set)
     studios: Set[str] = field(default_factory=set)
     networks: Set[str] = field(default_factory=set)
+    number_of_seasons: Optional[int] = None
+    number_of_episodes: Optional[int] = None
+    episode_run_time: Optional[int] = None
+    first_air_date: Optional[str] = None
     collections: Set[str] = field(default_factory=set)
     countries: Set[str] = field(default_factory=set)
     summary: str = ""
@@ -289,6 +306,23 @@ class PlexIndex:
         keywords = set(metadata.keywords) if metadata else set()
         letterboxd_keywords = set(metadata.letterboxd_keywords) if metadata else set()
         tmdb_id = metadata.tmdb_id if metadata else self._tmdb_id_for_item(item)
+        if metadata and metadata.networks:
+            networks.update(metadata.networks)
+        number_of_seasons = metadata.number_of_seasons if metadata else None
+        if number_of_seasons is None:
+            number_of_seasons = season_count
+        number_of_episodes = metadata.number_of_episodes if metadata else None
+        if number_of_episodes is None:
+            number_of_episodes = episode_count
+        episode_run_time = metadata.episode_run_time if metadata else None
+        if episode_run_time is None and runtime_minutes is not None:
+            try:
+                episode_run_time = int(round(runtime_minutes))
+            except (TypeError, ValueError):
+                episode_run_time = None
+        first_air_date_value = metadata.first_air_date if metadata else None
+        if first_air_date_value is None:
+            first_air_date_value = _format_date(first_air_date)
         is_standup = _is_standup_title(genres, keywords, letterboxd_keywords, collections)
 
         return PlexProfile(
@@ -303,6 +337,10 @@ class PlexIndex:
             letterboxd_keywords=letterboxd_keywords,
             studios=studios,
             networks=networks,
+            number_of_seasons=number_of_seasons,
+            number_of_episodes=number_of_episodes,
+            episode_run_time=episode_run_time,
+            first_air_date=first_air_date_value,
             collections=collections,
             countries=countries,
             summary=summary,
@@ -356,6 +394,14 @@ class PlexIndex:
             profile.studios = set()
         if not hasattr(profile, "networks") or profile.networks is None:
             profile.networks = set()
+        if not hasattr(profile, "number_of_seasons"):
+            profile.number_of_seasons = None
+        if not hasattr(profile, "number_of_episodes"):
+            profile.number_of_episodes = None
+        if not hasattr(profile, "episode_run_time"):
+            profile.episode_run_time = None
+        if not hasattr(profile, "first_air_date"):
+            profile.first_air_date = None
         if not hasattr(profile, "collections") or profile.collections is None:
             profile.collections = set()
         if not hasattr(profile, "countries") or profile.countries is None:

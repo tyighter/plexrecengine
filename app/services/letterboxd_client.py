@@ -28,6 +28,12 @@ class MediaProfile:
     genres: Set[str]
     keywords: Set[str]
     letterboxd_keywords: Set[str]
+    networks: Set[str]
+    number_of_seasons: Optional[int]
+    number_of_episodes: Optional[int]
+    episode_run_time: Optional[int]
+    status: Optional[str]
+    first_air_date: Optional[str]
     tmdb_rating: Optional[float]
     letterboxd_rating: Optional[float]
     letterboxd_vote_count: Optional[int]
@@ -44,6 +50,12 @@ class MediaProfile:
             genres=set(),
             keywords=set(),
             letterboxd_keywords=set(),
+            networks=set(),
+            number_of_seasons=None,
+            number_of_episodes=None,
+            episode_run_time=None,
+            status=None,
+            first_air_date=None,
             tmdb_rating=None,
             letterboxd_rating=None,
             letterboxd_vote_count=None,
@@ -287,7 +299,7 @@ class LetterboxdClient:
         if value is None:
             return None
         try:
-            digits = re.sub(r"[^0-9]", "", value)
+            digits = re.sub(r"[^0-9]", "", str(value))
             return int(digits) if digits else None
         except (ValueError, TypeError):
             return None
@@ -323,6 +335,19 @@ class LetterboxdClient:
             if member.get("job", "").lower() == "writer" and member.get("name")
         }
         genres = {g.get("name", "") for g in details.get("genres", []) if g.get("name")}
+        networks = {n.get("name", "") for n in details.get("networks", []) if n.get("name")}
+        number_of_seasons = self._parse_int(details.get("number_of_seasons"))
+        number_of_episodes = self._parse_int(details.get("number_of_episodes"))
+        first_air_date = details.get("first_air_date") or details.get("release_date")
+        status = details.get("status")
+        episode_run_time = details.get("episode_run_time")
+        if isinstance(episode_run_time, list):
+            episode_run_time = episode_run_time[0] if episode_run_time else None
+        if episode_run_time is not None:
+            try:
+                episode_run_time = int(episode_run_time)
+            except (TypeError, ValueError):
+                episode_run_time = None
 
         keyword_entries = keywords_resp.get("keywords") or keywords_resp.get("results") or []
         keywords = {kw.get("name", "") for kw in keyword_entries if kw.get("name")}
@@ -346,6 +371,12 @@ class LetterboxdClient:
             genres=genres,
             keywords=keywords,
             letterboxd_keywords=letterboxd_keywords,
+            networks=networks,
+            number_of_seasons=number_of_seasons,
+            number_of_episodes=number_of_episodes,
+            episode_run_time=episode_run_time,
+            status=status,
+            first_air_date=first_air_date,
             tmdb_rating=tmdb_rating,
             letterboxd_rating=rating,
             letterboxd_vote_count=votes,

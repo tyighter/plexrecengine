@@ -234,6 +234,14 @@ def invalidate_recent_cache() -> None:
     LAST_SEEN_RECENT_KEYS.clear()
 
 
+def invalidate_recommendation_cache(clear_recent: bool = False) -> None:
+    RECOMMENDATION_CACHE["movies"] = []
+    RECOMMENDATION_CACHE["shows"] = []
+    RECOMMENDATION_CACHE["timestamp"] = 0.0
+    if clear_recent:
+        invalidate_recent_cache()
+
+
 def _extract_recent_keys(data: dict[str, list[dict[str, object]]] | None) -> set[str]:
     if not data:
         return set()
@@ -548,7 +556,8 @@ async def update_preferences(payload: PlexPreferences):
         result = save_library_preferences(
             payload.movieLibrary, payload.showLibrary, payload.plexUserId
         )
-        invalidate_recent_cache()
+        invalidate_recommendation_cache(clear_recent=True)
+        _schedule_recommendation_rebuild(force=True)
         return result
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -699,6 +708,9 @@ async def set_recommendation_config(payload: RecommendationConfig):
         set_key(str(ENV_PATH), "STANDUP_KEYWORDS", ",".join(keywords))
         save_config({"STANDUP_KEYWORDS": keywords})
         settings.standup_keywords = keywords
+
+    invalidate_recommendation_cache(clear_recent=True)
+    _schedule_recommendation_rebuild(force=True)
 
     return {
         "status": "ok",

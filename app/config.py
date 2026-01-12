@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     year_weight: float = 10.0
     show_genre_weight: float = 15.0
     show_network_weight: float = 10.0
+    show_keyword_weight: float = 10.0
     show_season_count_weight: float = 8.0
     show_episode_count_weight: float = 8.0
     show_runtime_weight: float = 6.0

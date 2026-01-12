@@ -22,11 +22,11 @@ PLEX_USER_ID=<optional-plex-account-id> # Filters history to a specific Plex use
 TMDB_API_KEY=<tmdb-api-key>
 LETTERBOXD_SESSION=<optional-letterboxd-session-cookie>
 LETTERBOXD_ALLOW_SCRAPE=true            # Toggle Letterboxd scraping
-RELATED_POOL_LIMIT=100                  # How many related titles to consider per item
+RELATED_POOL_LIMIT=0                    # How many related titles to consider per item (0 = unlimited)
 ALLOW_WATCHED_RECOMMENDATIONS=false     # Allow already-watched titles in collections
 COLLECTION_ORDER=highest_score          # random|highest_score|alphabetical|oldest_first|newest_first
-STANDUP_ONLY_MATCHING=false             # When true, stand-up titles only match other stand-up titles
-STANDUP_KEYWORDS=stand-up comedy        # Optional comma-separated keywords/collections to flag stand-up
+STANDUP_ONLY_MATCHING=true              # When true, stand-up titles only match other stand-up titles
+STANDUP_KEYWORDS=stand-up,stand up,comedy special  # Optional comma-separated keywords/collections to flag stand-up
 DASHBOARD_TIMEOUT_SECONDS=10
 RECENT_ACTIVITY_TIMEOUT_SECONDS=10
 RECOMMENDATION_BUILD_TIMEOUT_SECONDS=120

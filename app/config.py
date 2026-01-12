@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     standup_only_matching: bool = True
     standup_keywords: List[str] = ["stand-up", "stand up", "standup", "comedy special"]
     quality_weight: float = 0.0
+    scoring_workers: int | None = min(32, (os.cpu_count() or 1) + 4)
     recency_max_bonus: float = 8.0
     recency_half_life_days: float = 45.0
     year_half_life: float = 10.0

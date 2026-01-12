@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import random
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 
@@ -46,15 +48,36 @@ class RecommendationEngine:
     def _score_related(
         self, source_profile: PlexProfile, candidates: Iterable[PlexProfile]
     ) -> List[Tuple[PlexProfile, float, dict[str, float]]]:
-        scored = []
+        scored: list[tuple[int, PlexProfile, float, dict[str, float]]] = []
         plot_scores = self.index._plot_similarity_scores(source_profile)
-        for candidate in candidates:
+        indexed_candidates = list(enumerate(candidates))
+        worker_count = settings.scoring_workers
+        if worker_count is None:
+            worker_count = min(32, (os.cpu_count() or 1) + 4)
+
+        def score_candidate(
+            item: tuple[int, PlexProfile],
+        ) -> tuple[int, PlexProfile, float, dict[str, float]]:
+            index, candidate = item
             plot_score = plot_scores.get(candidate.rating_key, 0.0)
             score, breakdown = profile_similarity(source_profile, candidate, plot_score)
-            if score > 0:
-                scored.append((candidate, score, breakdown))
-        scored.sort(key=lambda pair: pair[1], reverse=True)
-        return scored
+            return index, candidate, score, breakdown
+
+        if worker_count <= 1:
+            for item in indexed_candidates:
+                index, candidate, score, breakdown = score_candidate(item)
+                if score > 0:
+                    scored.append((index, candidate, score, breakdown))
+        else:
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                for index, candidate, score, breakdown in executor.map(
+                    score_candidate, indexed_candidates
+                ):
+                    if score > 0:
+                        scored.append((index, candidate, score, breakdown))
+
+        scored.sort(key=lambda pair: (-pair[2], pair[0]))
+        return [(candidate, score, breakdown) for _, candidate, score, breakdown in scored]
 
     def top_recommendations_for_item(
         self,

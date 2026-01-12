@@ -104,10 +104,16 @@ class PlexProfile:
     keywords: Set[str] = field(default_factory=set)
     letterboxd_keywords: Set[str] = field(default_factory=set)
     studios: Set[str] = field(default_factory=set)
+    networks: Set[str] = field(default_factory=set)
     collections: Set[str] = field(default_factory=set)
     countries: Set[str] = field(default_factory=set)
     summary: str = ""
     year: Optional[int] = None
+    first_air_year: Optional[int] = None
+    season_count: Optional[int] = None
+    episode_count: Optional[int] = None
+    runtime_minutes: Optional[float] = None
+    status: Optional[str] = None
     added_at: Optional[datetime] = None
     last_viewed_at: Optional[datetime] = None
     library: Optional[str] = None
@@ -236,14 +242,43 @@ class PlexIndex:
         cast = _extract_names(cast_sources)
         genres = _extract_names(getattr(item, "genres", []) or [])
         studios = _extract_names(getattr(item, "studios", []) or [])
+        networks = _extract_names(getattr(item, "networks", []) or [])
         studio_name = getattr(item, "studio", None) or getattr(item, "network", None)
         if studio_name:
             studios.add(str(studio_name))
+            networks.add(str(studio_name))
         collections = _extract_names(getattr(item, "collections", []) or [])
         countries = _extract_names(getattr(item, "countries", []) or [])
 
         summary = _normalize_summary(getattr(item, "summary", ""))
         year = getattr(item, "year", None)
+        first_air_date = getattr(item, "originallyAvailableAt", None)
+        if hasattr(first_air_date, "year"):
+            first_air_year = getattr(first_air_date, "year", None)
+        else:
+            first_air_year = None
+        if first_air_year is None:
+            first_air_year = year
+        season_count = getattr(item, "childCount", None)
+        if season_count is not None:
+            try:
+                season_count = int(season_count)
+            except (TypeError, ValueError):
+                season_count = None
+        episode_count = getattr(item, "leafCount", None)
+        if episode_count is not None:
+            try:
+                episode_count = int(episode_count)
+            except (TypeError, ValueError):
+                episode_count = None
+        duration_ms = getattr(item, "duration", None)
+        runtime_minutes = None
+        if duration_ms:
+            try:
+                runtime_minutes = float(duration_ms) / 60000.0
+            except (TypeError, ValueError):
+                runtime_minutes = None
+        status = getattr(item, "status", None)
         added_at = getattr(item, "addedAt", None)
         last_viewed_at = getattr(item, "lastViewedAt", None)
         media_type = getattr(item, "type", "movie") or "movie"
@@ -267,10 +302,16 @@ class PlexIndex:
             keywords=keywords,
             letterboxd_keywords=letterboxd_keywords,
             studios=studios,
+            networks=networks,
             collections=collections,
             countries=countries,
             summary=summary,
             year=year,
+            first_air_year=first_air_year,
+            season_count=season_count,
+            episode_count=episode_count,
+            runtime_minutes=runtime_minutes,
+            status=status,
             added_at=added_at,
             last_viewed_at=last_viewed_at,
             library=getattr(item, "librarySectionTitle", None),
@@ -313,6 +354,8 @@ class PlexIndex:
             profile.genres = set()
         if not hasattr(profile, "studios") or profile.studios is None:
             profile.studios = set()
+        if not hasattr(profile, "networks") or profile.networks is None:
+            profile.networks = set()
         if not hasattr(profile, "collections") or profile.collections is None:
             profile.collections = set()
         if not hasattr(profile, "countries") or profile.countries is None:
@@ -331,6 +374,16 @@ class PlexIndex:
             profile.summary = ""
         if not hasattr(profile, "year"):
             profile.year = None
+        if not hasattr(profile, "first_air_year"):
+            profile.first_air_year = None
+        if not hasattr(profile, "season_count"):
+            profile.season_count = None
+        if not hasattr(profile, "episode_count"):
+            profile.episode_count = None
+        if not hasattr(profile, "runtime_minutes"):
+            profile.runtime_minutes = None
+        if not hasattr(profile, "status"):
+            profile.status = None
         if not hasattr(profile, "added_at"):
             profile.added_at = None
         if not hasattr(profile, "last_viewed_at"):
@@ -640,17 +693,38 @@ def _overlap_ratio(a: Set[str], b: Set[str]) -> float:
         return 0.0
     return len(a & b) / len(union)
 
+def _numeric_similarity(source_value: Optional[float], target_value: Optional[float]) -> float:
+    if source_value is None or target_value is None:
+        return 0.0
+    try:
+        source = float(source_value)
+        target = float(target_value)
+    except (TypeError, ValueError):
+        return 0.0
+    if source <= 0 or target <= 0:
+        return 0.0
+    max_value = max(source, target)
+    if max_value <= 0:
+        return 0.0
+    similarity = 1.0 - abs(source - target) / max_value
+    return max(0.0, min(1.0, similarity))
 
-def _year_similarity(source_year: Optional[int], target_year: Optional[int]) -> float:
+
+def _status_similarity(source_status: Optional[str], target_status: Optional[str]) -> float:
+    if not source_status or not target_status:
+        return 0.0
+    return 1.0 if _normalize_label(str(source_status)) == _normalize_label(str(target_status)) else 0.0
+
+
+def _year_similarity(source_year: Optional[int], target_year: Optional[int], half_life: float) -> float:
     if not source_year or not target_year:
         return 0.0
     year_gap = abs(source_year - target_year)
-    if settings.year_half_life <= 0:
+    if half_life <= 0:
         return 0.0
-    return math.exp(-year_gap / settings.year_half_life)
+    return math.exp(-year_gap / half_life)
 
-
-def _recency_bonus(profile: PlexProfile) -> float:
+def _recency_bonus(profile: PlexProfile, max_bonus: float, half_life_days: float) -> float:
     recent_date = max(
         [dt for dt in [profile.added_at, profile.last_viewed_at] if dt is not None],
         default=None,
@@ -660,10 +734,10 @@ def _recency_bonus(profile: PlexProfile) -> float:
     age_days = (datetime.utcnow() - recent_date).total_seconds() / 86400.0
     if age_days < 0:
         age_days = 0.0
-    if settings.recency_half_life_days <= 0:
+    if half_life_days <= 0:
         return 0.0
-    decay = math.exp(-age_days / settings.recency_half_life_days)
-    return settings.recency_max_bonus * decay
+    decay = math.exp(-age_days / half_life_days)
+    return max_bonus * decay
 
 
 def _quality_score(profile: PlexProfile) -> float:
@@ -677,34 +751,58 @@ def _quality_score(profile: PlexProfile) -> float:
 
 
 def profile_similarity(source: PlexProfile, target: PlexProfile, plot_score: float = 0.0) -> Tuple[float, dict[str, float]]:
-    cast_similarity = _overlap_ratio(source.cast, target.cast)
-    director_similarity = _overlap_ratio(source.directors, target.directors)
-    writer_similarity = _overlap_ratio(source.writers, target.writers)
-    genre_similarity = _overlap_ratio(source.genres, target.genres)
-    keyword_similarity = _overlap_ratio(source.keywords, target.keywords)
-    letterboxd_keyword_similarity = _overlap_ratio(source.letterboxd_keywords, target.letterboxd_keywords)
-    studio_similarity = _overlap_ratio(source.studios, target.studios)
-    collection_similarity = _overlap_ratio(source.collections, target.collections)
-    country_similarity = _overlap_ratio(source.countries, target.countries)
-    year_similarity = _year_similarity(source.year, target.year)
-    recency = _recency_bonus(target)
-    quality = _quality_score(target)
+    if source.media_type == "show" and target.media_type == "show":
+        genre_similarity = _overlap_ratio(source.genres, target.genres)
+        network_similarity = _overlap_ratio(source.networks, target.networks)
+        season_similarity = _numeric_similarity(source.season_count, target.season_count)
+        episode_similarity = _numeric_similarity(source.episode_count, target.episode_count)
+        runtime_similarity = _numeric_similarity(source.runtime_minutes, target.runtime_minutes)
+        status_similarity = _status_similarity(source.status, target.status)
+        year_similarity = _year_similarity(source.first_air_year, target.first_air_year, settings.show_year_half_life)
+        recency = _recency_bonus(target, settings.show_recency_max_bonus, settings.show_recency_half_life_days)
+        quality = _quality_score(target)
 
-    breakdown = {
-        "cast": cast_similarity * settings.cast_weight,
-        "directors": director_similarity * settings.director_weight,
-        "writers": writer_similarity * settings.writer_weight,
-        "genres": genre_similarity * settings.genre_weight,
-        "keywords": keyword_similarity * settings.keyword_weight,
-        "letterboxd_keywords": letterboxd_keyword_similarity * settings.letterboxd_keyword_weight,
-        "studios": studio_similarity * settings.studio_weight,
-        "collections": collection_similarity * settings.collection_weight,
-        "countries": country_similarity * settings.country_weight,
-        "plot": plot_score * settings.plot_weight,
-        "year": year_similarity * settings.year_weight,
-        "recency": recency,
-        "quality": quality,
-    }
+        breakdown = {
+            "show_genres": genre_similarity * settings.show_genre_weight,
+            "show_networks": network_similarity * settings.show_network_weight,
+            "show_season_count": season_similarity * settings.show_season_count_weight,
+            "show_episode_count": episode_similarity * settings.show_episode_count_weight,
+            "show_runtime": runtime_similarity * settings.show_runtime_weight,
+            "show_status": status_similarity * settings.show_status_weight,
+            "show_plot": plot_score * settings.plot_weight,
+            "show_year": year_similarity * settings.show_year_weight,
+            "show_recency": recency,
+            "show_quality": quality,
+        }
+    else:
+        cast_similarity = _overlap_ratio(source.cast, target.cast)
+        director_similarity = _overlap_ratio(source.directors, target.directors)
+        writer_similarity = _overlap_ratio(source.writers, target.writers)
+        genre_similarity = _overlap_ratio(source.genres, target.genres)
+        keyword_similarity = _overlap_ratio(source.keywords, target.keywords)
+        letterboxd_keyword_similarity = _overlap_ratio(source.letterboxd_keywords, target.letterboxd_keywords)
+        studio_similarity = _overlap_ratio(source.studios, target.studios)
+        collection_similarity = _overlap_ratio(source.collections, target.collections)
+        country_similarity = _overlap_ratio(source.countries, target.countries)
+        year_similarity = _year_similarity(source.year, target.year, settings.year_half_life)
+        recency = _recency_bonus(target, settings.recency_max_bonus, settings.recency_half_life_days)
+        quality = _quality_score(target)
+
+        breakdown = {
+            "cast": cast_similarity * settings.cast_weight,
+            "directors": director_similarity * settings.director_weight,
+            "writers": writer_similarity * settings.writer_weight,
+            "genres": genre_similarity * settings.genre_weight,
+            "keywords": keyword_similarity * settings.keyword_weight,
+            "letterboxd_keywords": letterboxd_keyword_similarity * settings.letterboxd_keyword_weight,
+            "studios": studio_similarity * settings.studio_weight,
+            "collections": collection_similarity * settings.collection_weight,
+            "countries": country_similarity * settings.country_weight,
+            "plot": plot_score * settings.plot_weight,
+            "year": year_similarity * settings.year_weight,
+            "recency": recency,
+            "quality": quality,
+        }
 
     total = round(sum(breakdown.values()), 2)
     normalized = {key: round(value, 2) for key, value in breakdown.items()}

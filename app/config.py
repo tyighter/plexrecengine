@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     show_status_weight: float = 6.0
     show_year_weight: float = 10.0
     standup_only_matching: bool = True
-    standup_keywords: List[str] = ["stand-up", "stand up", "comedy special"]
+    standup_keywords: List[str] = ["stand-up", "stand up", "standup", "comedy special"]
     quality_weight: float = 0.0
     recency_max_bonus: float = 8.0
     recency_half_life_days: float = 45.0

@@ -933,18 +933,66 @@
                 breakdownTitle.innerHTML = '<strong>Score breakdown</strong>';
                 const breakdownList = document.createElement('ul');
                 breakdownList.className = 'score-breakdown';
-                const labels = [
-                    ['cast', 'Cast overlap'],
-                    ['directors', 'Director match'],
-                    ['writers', 'Writer match'],
-                    ['genres', 'Genre match'],
-                    ['plot', 'Plot similarity'],
+                const labelMap = {
+                    cast: 'Cast overlap',
+                    directors: 'Director match',
+                    writers: 'Writer match',
+                    genres: 'Genre match',
+                    keywords: 'Keyword match',
+                    letterboxd_keywords: 'Letterboxd keyword match',
+                    studios: 'Studio match',
+                    collections: 'Collection overlap',
+                    countries: 'Country match',
+                    plot: 'Plot similarity',
+                    year: 'Release year match',
+                    recency: 'Recent activity',
+                    quality: 'Quality score',
+                    show_genres: 'Show genre match',
+                    show_networks: 'Network match',
+                    show_season_count: 'Season count match',
+                    show_episode_count: 'Episode count match',
+                    show_runtime: 'Runtime match',
+                    show_status: 'Status match',
+                    show_plot: 'Show plot similarity',
+                    show_year: 'First air year match',
+                    show_recency: 'Show recency',
+                    show_quality: 'Show quality score',
+                };
+                const preferredOrder = [
+                    'cast',
+                    'directors',
+                    'writers',
+                    'genres',
+                    'keywords',
+                    'letterboxd_keywords',
+                    'studios',
+                    'collections',
+                    'countries',
+                    'plot',
+                    'year',
+                    'recency',
+                    'quality',
+                    'show_genres',
+                    'show_networks',
+                    'show_season_count',
+                    'show_episode_count',
+                    'show_runtime',
+                    'show_status',
+                    'show_plot',
+                    'show_year',
+                    'show_recency',
+                    'show_quality',
                 ];
-                labels.forEach(([key, label]) => {
+                const breakdownKeys = Object.keys(item.score_breakdown);
+                const orderedKeys = preferredOrder
+                    .filter((key) => breakdownKeys.includes(key))
+                    .concat(breakdownKeys.filter((key) => !preferredOrder.includes(key)).sort());
+                orderedKeys.forEach((key) => {
                     const value = item.score_breakdown[key];
                     if (value === undefined || value === null) return;
                     if (Math.abs(value) < 0.01) return;
                     const entry = document.createElement('li');
+                    const label = labelMap[key] || key.replace(/_/g, ' ');
                     entry.textContent = `${label}: ${value.toFixed(2)}`;
                     breakdownList.appendChild(entry);
                 });

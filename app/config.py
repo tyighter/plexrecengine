@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     tmdb_api_key: str | None = None
     letterboxd_session: str | None = None
     letterboxd_allow_scrape: bool = True
-    related_pool_limit: int = 100
+    related_pool_limit: int = 0
     allow_watched_recommendations: bool = False
     collection_order: str = "highest_score"
     dashboard_timeout_seconds: float = 10.0
@@ -95,8 +95,8 @@ class Settings(BaseSettings):
     show_runtime_weight: float = 6.0
     show_status_weight: float = 6.0
     show_year_weight: float = 10.0
-    standup_only_matching: bool = False
-    standup_keywords: List[str] = []
+    standup_only_matching: bool = True
+    standup_keywords: List[str] = ["stand-up", "stand up", "comedy special"]
     quality_weight: float = 0.0
     recency_max_bonus: float = 8.0
     recency_half_life_days: float = 45.0

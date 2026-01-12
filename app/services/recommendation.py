@@ -92,11 +92,22 @@ class RecommendationEngine:
         source_label = (
             f"{source_title} ({source_year})" if source_title and source_year else source_title
         )
+        source_context = {
+            "source_label": source_label or "Unknown",
+            "source_rating_key": getattr(item, "ratingKey", None),
+        }
 
-        SCORING_LOGGER.info("==== Recently watched: %s ====", source_label or "Unknown")
+        SCORING_LOGGER.info(
+            "==== Recently watched: %s ====",
+            source_label or "Unknown",
+            extra=source_context,
+        )
         source_profile = self._profile_for_item(item, media_type)
         if source_profile is None:
-            SCORING_LOGGER.info("No profile available; skipping scoring for this item")
+            SCORING_LOGGER.info(
+                "No profile available; skipping scoring for this item",
+                extra=source_context,
+            )
             return []
         related_pool_limit = settings.related_pool_limit or 0
         related: list[PlexProfile] = []
@@ -111,25 +122,27 @@ class RecommendationEngine:
                 related = [profile for profile in related if profile.is_standup]
                 SCORING_LOGGER.info(
                     "Stand-up filtering enabled; restricted related pool to stand-up titles",
-                    extra={"remaining": len(related)},
+                    extra={**source_context, "remaining": len(related)},
                 )
             else:
                 related = [profile for profile in related if not profile.is_standup]
                 SCORING_LOGGER.info(
                     "Stand-up filtering enabled; excluding stand-up specials for non-stand-up source",
-                    extra={"remaining": len(related)},
+                    extra={**source_context, "remaining": len(related)},
                 )
 
         if not related:
             SCORING_LOGGER.info(
                 "No related Plex titles found for %s; skipping recommendations",
                 source_label or "Unknown title",
+                extra=source_context,
             )
             return []
         else:
             SCORING_LOGGER.info(
                 "Using %s Plex-related titles",
                 len(related),
+                extra=source_context,
             )
         scored = self._score_related(source_profile, related)
         library_name = (
@@ -155,10 +168,14 @@ class RecommendationEngine:
             available_in_library,
             len(related),
             library_name,
+            extra=source_context,
         )
 
         if not scored:
-            SCORING_LOGGER.info("No related titles produced non-zero scores")
+            SCORING_LOGGER.info(
+                "No related titles produced non-zero scores",
+                extra=source_context,
+            )
         else:
             for rank, (profile, score, breakdown, plex_matches) in enumerate(
                 availability, start=1
@@ -174,6 +191,7 @@ class RecommendationEngine:
                     score,
                     breakdown_text,
                     " — available in Plex" if plex_matches else "",
+                    extra=source_context,
                 )
         recommendations: List[Recommendation] = []
         skipped_not_in_library: list[str] = []
@@ -185,6 +203,7 @@ class RecommendationEngine:
                 SCORING_LOGGER.info(
                     "Skipping %s — not found in Plex library",
                     profile.title,
+                    extra=source_context,
                 )
                 continue
 
@@ -194,6 +213,7 @@ class RecommendationEngine:
                 SCORING_LOGGER.info(
                     "Skipping %s — recently watched item replaced in recommendations",
                     plex_item.title,
+                    extra=source_context,
                 )
                 continue
             if not settings.allow_watched_recommendations:
@@ -204,6 +224,7 @@ class RecommendationEngine:
                         "Skipping %s — already watched in Plex (viewCount=%s)",
                         profile.title,
                         view_count,
+                        extra=source_context,
                     )
                     continue
             overlap = {
@@ -279,6 +300,7 @@ class RecommendationEngine:
                 plex_item.title,
                 score,
                 breakdown,
+                extra=source_context,
             )
             if len(recommendations) >= count:
                 break
@@ -288,12 +310,14 @@ class RecommendationEngine:
                 "Removed %s candidates not present in Plex: %s",
                 len(skipped_not_in_library),
                 ", ".join(skipped_not_in_library),
+                extra=source_context,
             )
         if excluded_recently_watched:
             SCORING_LOGGER.info(
                 "Removed %s recently watched recommendations: %s",
                 len(excluded_recently_watched),
                 ", ".join(excluded_recently_watched),
+                extra=source_context,
             )
 
         if recommendations:
@@ -306,6 +330,7 @@ class RecommendationEngine:
                 "Top %s selected for the collection: %s",
                 len(top_selected),
                 top_summary,
+                extra=source_context,
             )
         return recommendations
 

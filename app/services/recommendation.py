@@ -57,7 +57,12 @@ class RecommendationEngine:
         return scored
 
     def top_recommendations_for_item(
-        self, item, media_type: str, count: int = 6
+        self,
+        item,
+        media_type: str,
+        count: int = 6,
+        *,
+        exclude_rating_keys: Optional[set[int]] = None,
     ) -> List[Recommendation]:
         source_title = getattr(item, "title", None)
         source_year = getattr(item, "year", None)
@@ -149,6 +154,7 @@ class RecommendationEngine:
                 )
         recommendations: List[Recommendation] = []
         skipped_not_in_library: list[str] = []
+        excluded_recently_watched: list[str] = []
         for profile, score, breakdown, plex_matches in availability[: count * 2]:
             # try to find an unwatched matching item in Plex
             if not plex_matches:
@@ -160,6 +166,13 @@ class RecommendationEngine:
                 continue
 
             plex_item = plex_matches[0]
+            if exclude_rating_keys and plex_item.ratingKey in exclude_rating_keys:
+                excluded_recently_watched.append(plex_item.title)
+                SCORING_LOGGER.info(
+                    "Skipping %s — recently watched item replaced in recommendations",
+                    plex_item.title,
+                )
+                continue
             if not settings.allow_watched_recommendations:
                 view_count = getattr(plex_item, "viewCount", 0) or 0
                 is_watched = bool(getattr(plex_item, "isWatched", False))
@@ -253,6 +266,12 @@ class RecommendationEngine:
                 len(skipped_not_in_library),
                 ", ".join(skipped_not_in_library),
             )
+        if excluded_recently_watched:
+            SCORING_LOGGER.info(
+                "Removed %s recently watched recommendations: %s",
+                len(excluded_recently_watched),
+                ", ".join(excluded_recently_watched),
+            )
 
         if recommendations:
             top_selected = sorted(recommendations, key=lambda rec: rec.score, reverse=True)[:3]
@@ -335,10 +354,18 @@ class RecommendationEngine:
         picks_per_source = settings.recommendations_per_recent or 3
         candidates_by_source: dict[int, List[Recommendation]] = {}
         source_order: List[int] = []
+        recent_rating_keys = {
+            getattr(item, "ratingKey", None)
+            for item in recent_items
+            if getattr(item, "ratingKey", None) is not None
+        }
         for item in recent_items:
             source_id = getattr(item, "ratingKey", id(item))
             recs = self.top_recommendations_for_item(
-                item, media_type=media_type, count=picks_per_source * 3
+                item,
+                media_type=media_type,
+                count=picks_per_source * 3,
+                exclude_rating_keys=recent_rating_keys,
             )
             if not recs:
                 COLLECTION_LOGGER.debug(

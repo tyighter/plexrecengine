@@ -716,14 +716,13 @@ async def set_recommendation_config(payload: RecommendationConfig):
 async def webhook_trigger():
     if settings.is_plex_configured:
         invalidate_recent_cache()
-        plex = get_plex_service()
-        index = get_plex_index()
-        index.refresh_recent_additions()
-        engine = RecommendationEngine(plex, index)
-        engine.build_movie_collection()
-        engine.build_show_collection()
-        _schedule_recommendation_rebuild(force=True)
-        return {"status": "ok"}
+        recommendation_scheduled = _schedule_recommendation_rebuild(force=True)
+        index_scheduled = _schedule_index_rebuild()
+        return {
+            "status": "scheduled",
+            "recommendations": recommendation_scheduled,
+            "index": index_scheduled,
+        }
     return {"status": "skipped", "reason": "Plex is not configured"}
 
 
@@ -736,7 +735,16 @@ async def build_recommendations():
 
     LOGGER.info("Rebuilding recommendations immediately")
     try:
-        recommendations = await _run_recommendation_rebuild(force=True)
+        recommendations = await asyncio.wait_for(
+            _run_recommendation_rebuild(force=True),
+            timeout=settings.recommendation_build_timeout_seconds,
+        )
+    except asyncio.TimeoutError as exc:
+        LOGGER.warning(
+            "Recommendation rebuild timed out after %s seconds",
+            settings.recommendation_build_timeout_seconds,
+        )
+        raise HTTPException(status_code=504, detail="Recommendation rebuild timed out") from exc
     except Exception as exc:  # noqa: BLE001
         LOGGER.exception("Failed to rebuild recommendations synchronously")
         raise HTTPException(status_code=500, detail="Failed to rebuild recommendations") from exc

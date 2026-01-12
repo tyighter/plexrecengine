@@ -36,6 +36,7 @@ app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="stati
 ENV_PATH = Path(".env")
 LOGGER = get_generate_logger()
 WEB_LOGGER = get_webui_logger()
+SENSITIVE_API_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 RECENT_CACHE_TTL_SECONDS = 300
 RECENT_ACTIVITY_CACHE: dict[str, object] = {"data": None, "timestamp": 0.0}
@@ -50,6 +51,45 @@ RECOMMENDATION_CACHE: dict[str, object] = {
 RECOMMENDATION_CACHE_LOCK = asyncio.Lock()
 RECOMMENDATION_REBUILD_TASK: asyncio.Task | None = None
 INDEX_REBUILD_TASK: asyncio.Task | None = None
+
+
+def _is_sensitive_route(request: Request) -> bool:
+    path = request.url.path
+    if path == "/webhook":
+        return True
+    if path.startswith("/api/") and request.method.upper() in SENSITIVE_API_METHODS:
+        return True
+    return False
+
+
+def _extract_api_token(request: Request) -> str | None:
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1].strip()
+            if token:
+                return token
+    api_key = request.headers.get("X-API-Key")
+    if api_key:
+        token = api_key.strip()
+        if token:
+            return token
+    return None
+
+
+@app.middleware("http")
+async def require_api_auth(request: Request, call_next):
+    configured_token = (settings.api_auth_token or "").strip()
+    if not configured_token or not _is_sensitive_route(request):
+        return await call_next(request)
+
+    provided_token = _extract_api_token(request)
+    if not provided_token:
+        return JSONResponse(status_code=401, content={"detail": "Missing API auth token"})
+    if provided_token != configured_token:
+        return JSONResponse(status_code=403, content={"detail": "Invalid API auth token"})
+    return await call_next(request)
 
 
 @app.middleware("http")

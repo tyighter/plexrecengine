@@ -46,6 +46,7 @@ def persist_keys(**updates: object):
         "tautulli_api_key": "TAUTULLI_API_KEY",
         "tautulli_user_id": "TAUTULLI_USER_ID",
         "tmdb_api_key": "TMDB_API_KEY",
+        "api_auth_token": "API_AUTH_TOKEN",
     }
 
     for key, env_name in env_mappings.items():

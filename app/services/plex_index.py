@@ -88,9 +88,15 @@ def _normalize_label(label: str) -> str:
     return re.sub(r"[\s\-]+", " ", label).strip().lower()
 
 
-def _is_standup_title(genres: Iterable[str], keywords: Iterable[str], letterboxd_keywords: Iterable[str], collections: Iterable[str]) -> bool:
+def _is_standup_title(
+    genres: Iterable[str],
+    keywords: Iterable[str],
+    letterboxd_keywords: Iterable[str],
+    collections: Iterable[str],
+    summary: str = "",
+) -> bool:
     cues = {_normalize_label(keyword) for keyword in settings.standup_keywords}
-    cues.update(DEFAULT_STANDUP_CUES)
+    cues.update({_normalize_label(cue) for cue in DEFAULT_STANDUP_CUES})
 
     def _matches(values: Iterable[str]) -> bool:
         for value in values or []:
@@ -102,7 +108,13 @@ def _is_standup_title(genres: Iterable[str], keywords: Iterable[str], letterboxd
                     return True
         return False
 
-    return _matches(genres) or _matches(keywords) or _matches(letterboxd_keywords) or _matches(collections)
+    return (
+        _matches(genres)
+        or _matches(keywords)
+        or _matches(letterboxd_keywords)
+        or _matches(collections)
+        or _matches([summary])
+    )
 
 
 @dataclass
@@ -325,7 +337,7 @@ class PlexIndex:
         first_air_date_value = metadata.first_air_date if metadata else None
         if first_air_date_value is None:
             first_air_date_value = _format_date(first_air_date)
-        is_standup = _is_standup_title(genres, keywords, letterboxd_keywords, collections)
+        is_standup = _is_standup_title(genres, keywords, letterboxd_keywords, collections, summary)
 
         return PlexProfile(
             rating_key=int(getattr(item, "ratingKey", 0)),
@@ -439,6 +451,7 @@ class PlexIndex:
         if not hasattr(profile, "library"):
             profile.library = None
         existing_flag = getattr(profile, "is_standup", False)
+        summary = _normalize_summary(getattr(profile, "summary", ""))
         try:
             profile.is_standup = bool(
                 existing_flag
@@ -447,6 +460,7 @@ class PlexIndex:
                     getattr(profile, "keywords", set()),
                     getattr(profile, "letterboxd_keywords", set()),
                     getattr(profile, "collections", set()),
+                    summary,
                 )
             )
         except Exception:

@@ -219,18 +219,20 @@ class PlexIndex:
 
         return None
 
-    def _should_fetch_media_profile(self) -> bool:
+    def _should_fetch_media_profile(self, media_type: str) -> bool:
+        if not settings.tmdb_api_key:
+            return False
+        include_letterboxd = settings.letterboxd_keyword_weight > 0 and media_type != "show"
+        include_show_keywords = settings.show_keyword_weight > 0 and media_type == "show"
         return bool(
-            settings.tmdb_api_key
-            and (
-                settings.quality_weight > 0
-                or settings.keyword_weight > 0
-                or settings.letterboxd_keyword_weight > 0
-            )
+            settings.quality_weight > 0
+            or settings.keyword_weight > 0
+            or include_letterboxd
+            or include_show_keywords
         )
 
     def _fetch_media_profile(self, item, media_type: str) -> Optional[MediaProfile]:
-        if not self._should_fetch_media_profile():
+        if not self._should_fetch_media_profile(media_type):
             return None
 
         tmdb_id = self._tmdb_id_for_item(item)
@@ -800,6 +802,7 @@ def profile_similarity(source: PlexProfile, target: PlexProfile, plot_score: flo
     if source.media_type == "show" and target.media_type == "show":
         genre_similarity = _overlap_ratio(source.genres, target.genres)
         network_similarity = _overlap_ratio(source.networks, target.networks)
+        keyword_similarity = _overlap_ratio(source.keywords, target.keywords)
         season_similarity = _numeric_similarity(source.season_count, target.season_count)
         episode_similarity = _numeric_similarity(source.episode_count, target.episode_count)
         runtime_similarity = _numeric_similarity(source.runtime_minutes, target.runtime_minutes)
@@ -811,6 +814,7 @@ def profile_similarity(source: PlexProfile, target: PlexProfile, plot_score: flo
         breakdown = {
             "show_genres": genre_similarity * settings.show_genre_weight,
             "show_networks": network_similarity * settings.show_network_weight,
+            "show_keywords": keyword_similarity * settings.show_keyword_weight,
             "show_season_count": season_similarity * settings.show_season_count_weight,
             "show_episode_count": episode_similarity * settings.show_episode_count_weight,
             "show_runtime": runtime_similarity * settings.show_runtime_weight,

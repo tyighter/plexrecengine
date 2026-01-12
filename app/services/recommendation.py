@@ -386,14 +386,14 @@ class RecommendationEngine:
                 "collection": collection_name,
                 "sources": len(source_order),
                 "final": len(final),
-                "order": (settings.collection_order or "highest_score").lower(),
+                "order": (settings.collection_order or "recommendation_order").lower(),
             },
         )
         self._refresh_collection(collection_name, final)
         return final
 
     def _order_recommendations(self, recs: List[Recommendation]) -> List[Recommendation]:
-        order = (settings.collection_order or "highest_score").lower()
+        order = (settings.collection_order or "recommendation_order").lower()
         ordered = list(recs)
 
         if order == "random":

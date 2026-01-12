@@ -486,7 +486,7 @@ class RecommendationEngine:
         LOGGER.debug("Found recently watched shows", extra={"count": len(recent_shows)})
         return self._build_collection(
             recent_shows,
-            media_type="tv",
+            media_type="show",
             collection_name="Recommended Shows",
             limit=limit,
         )

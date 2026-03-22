@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     dashboard_timeout_seconds: float = 10.0
     recent_activity_timeout_seconds: float = 10.0
     recommendation_build_timeout_seconds: float = 120.0
+    plex_index_rebuild_interval_hours: int = 24
     recents_window_days: int = 7
     recommendations_per_recent: int = 3
     cast_weight: float = 20.0
@@ -128,7 +129,11 @@ class Settings(BaseSettings):
             return [keyword.strip() for keyword in value.split(",") if keyword.strip()]
         return value
 
-    @field_validator("recents_window_days", "recommendations_per_recent")
+    @field_validator(
+        "recents_window_days",
+        "recommendations_per_recent",
+        "plex_index_rebuild_interval_hours",
+    )
     @classmethod
     def positive_int(cls, value, info):
         if value is None:

@@ -162,6 +162,7 @@ class RecommendationConfig(BaseModel):
     collectionOrder: str | None = None
     recentsWindowDays: int | None = None
     recommendationsPerRecent: int | None = None
+    plexIndexRebuildIntervalHours: int | None = None
     standupOnlyMatching: bool | None = None
     standupKeywords: list[str] | None = None
 
@@ -376,6 +377,25 @@ async def _watch_recent_activity():
         await asyncio.sleep(120)
 
 
+
+
+async def _watch_scheduled_index_rebuilds():
+    while True:
+        interval_hours = max(int(settings.plex_index_rebuild_interval_hours), 1)
+        await asyncio.sleep(interval_hours * 3600)
+
+        try:
+            if not settings.is_plex_configured:
+                continue
+
+            LOGGER.info(
+                "Running scheduled Plex index rebuild after %s hours",
+                interval_hours,
+            )
+            _schedule_index_rebuild()
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Scheduled Plex index rebuild watcher failed")
+
 async def _watch_library_additions():
     while True:
         try:
@@ -424,6 +444,7 @@ async def startup_build_collections():
     asyncio.create_task(refresh_recent_cache())
     asyncio.create_task(_watch_recent_activity())
     asyncio.create_task(_watch_library_additions())
+    asyncio.create_task(_watch_scheduled_index_rebuilds())
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -632,6 +653,7 @@ async def set_recommendation_config(payload: RecommendationConfig):
         and payload.collectionOrder is None
         and payload.recentsWindowDays is None
         and payload.recommendationsPerRecent is None
+        and payload.plexIndexRebuildIntervalHours is None
         and payload.standupOnlyMatching is None
         and payload.standupKeywords is None
     ):
@@ -692,6 +714,23 @@ async def set_recommendation_config(payload: RecommendationConfig):
         save_config({"RECOMMENDATIONS_PER_RECENT": payload.recommendationsPerRecent})
         settings.recommendations_per_recent = payload.recommendationsPerRecent
 
+    if payload.plexIndexRebuildIntervalHours is not None:
+        if payload.plexIndexRebuildIntervalHours < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Plex index rebuild interval must be at least 1 hour",
+            )
+        ENV_PATH.touch(exist_ok=True)
+        set_key(
+            str(ENV_PATH),
+            "PLEX_INDEX_REBUILD_INTERVAL_HOURS",
+            str(payload.plexIndexRebuildIntervalHours),
+        )
+        save_config(
+            {"PLEX_INDEX_REBUILD_INTERVAL_HOURS": payload.plexIndexRebuildIntervalHours}
+        )
+        settings.plex_index_rebuild_interval_hours = payload.plexIndexRebuildIntervalHours
+
     if payload.standupOnlyMatching is not None:
         ENV_PATH.touch(exist_ok=True)
         set_key(
@@ -719,6 +758,7 @@ async def set_recommendation_config(payload: RecommendationConfig):
         "collection_order": settings.collection_order,
         "recents_window_days": settings.recents_window_days,
         "recommendations_per_recent": settings.recommendations_per_recent,
+        "plex_index_rebuild_interval_hours": settings.plex_index_rebuild_interval_hours,
         "standup_only_matching": settings.standup_only_matching,
         "standup_keywords": settings.standup_keywords,
     }

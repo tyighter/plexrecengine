@@ -31,6 +31,7 @@ STANDUP_KEYWORDS=stand-up,stand up,comedy special  # Optional comma-separated ke
 DASHBOARD_TIMEOUT_SECONDS=10
 RECENT_ACTIVITY_TIMEOUT_SECONDS=10
 RECOMMENDATION_BUILD_TIMEOUT_SECONDS=120
+PLEX_INDEX_REBUILD_INTERVAL_HOURS=24      # Automatic full Plex index rebuild cadence
 # Optional Tautulli integration (history source and user filtering)
 TAUTULLI_BASE_URL=https://tautulli.example.com
 TAUTULLI_API_KEY=<tautulli-api-key>
@@ -60,6 +61,7 @@ The app will be available at `http://localhost:5555`. Mount `/app/config` (for s
 
 - Configure a Plex webhook to `http://<host>:5555/webhook` to trigger an immediate refresh when something finishes playing.
 - Background workers also watch recent history and recent additions, so recommendations gradually update even without the webhook.
+- The Plex index also runs a scheduled rebuild automatically every `PLEX_INDEX_REBUILD_INTERVAL_HOURS` (defaults to 24 hours) so you get a daily full refresh without manual intervention.
 - You can force a rebuild from the dashboard, and the cached results are shown on page load while long-running jobs continue in the background.
 
 Similarity scoring prioritizes Letterboxd ratings (when available) layered on top of TMDB cast/crew/genre/keyword overlap. Set `LETTERBOXD_ALLOW_SCRAPE=false` to skip scraping entirely.
